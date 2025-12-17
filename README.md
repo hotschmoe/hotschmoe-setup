@@ -57,41 +57,56 @@ Installs development tools and AI coding assistants:
 .\windows\dev-setup.ps1
 ```
 
+---
+
+## Linux
+
+### Developer Machine (`linux/dev-setup.sh`)
+
+**Auto-detects distro** and uses the appropriate package manager:
+- **Ubuntu/Debian** → `apt`
+- **Arch/Omarchy** → `pacman` + `yay` (installs yay if missing)
+
+| Application | Ubuntu/Debian | Arch/Omarchy |
+|-------------|---------------|--------------|
+| Git | apt | pacman |
+| Build essentials | apt | pacman |
+| tmux | apt | pacman |
+| htop | apt | pacman |
+| Ghostty | **Manual** | AUR (yay) |
+| Node.js | NodeSource | pacman |
+| Bun | curl installer | curl installer |
+| Go | official tarball | pacman |
+| Python 3 | apt | pacman |
+| Zig | official tarball | pacman |
+| ZLS | GitHub release | pacman |
+| ARM GNU Toolchain | apt | pacman |
+| Docker | get.docker.com | pacman |
+| QEMU | apt | pacman |
+| LazyGit | GitHub release | pacman |
+| Claude Code | curl installer | curl installer |
+| Gemini CLI | bun | bun |
+| Beads (bd/bv) | curl installer | curl installer |
+| Cursor | **Manual** | AUR (yay) |
+| Antigravity IDE | **Manual** | **Manual** |
+
+**Usage:**
+```bash
+chmod +x linux/dev-setup.sh
+./linux/dev-setup.sh
+```
+
 **Post-Installation:**
-1. **REBOOT** if WSL2 was just installed (required to complete setup)
-   - After reboot, Ubuntu will prompt for username/password creation
-   - Docker will automatically use WSL2 backend
-2. Restart your terminal for PATH changes to take effect
-3. If Claude Code or Beads failed during install, run manually:
-   ```powershell
-   irm https://claude.ai/install.ps1 | iex
-   irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex
-   ```
-4. Run verification commands:
-   ```powershell
-   wsl --version
-   wsl --list
-   git --version
-   bun --version
-   node --version
-   go version
-   python --version
-   zig version
-   zls --version
-   arm-none-eabi-gcc --version
-   docker --version
-   qemu-system-aarch64 --version
-   claude --version
-   lazygit --version
-   bd version
-   ```
+1. Log out and back in for docker group to take effect
+2. Restart terminal or `source ~/.bashrc`
+3. Verify: `git --version`, `zig version`, `docker --version`, etc.
 
 ---
 
 ## Notes
 
-- **WSL2 + Ubuntu** is installed for Docker backend and general Linux development
-- **Why native Zig?** Zig v0.15.0+ fails to build on WSL, so Zig development stays on native Windows
-- **Why Bun?** Bun is faster than npm for package installation and is used for global packages like Gemini CLI
-- **winget required** - These scripts require Windows Package Manager (winget). Install via Microsoft Store if not present
-- **Docker** uses WSL2 backend by default (installs its own lightweight distro alongside Ubuntu)
+- **WSL2 + Ubuntu** (Windows) is installed for Docker backend and general Linux development
+- **Why native Zig on Windows?** Zig v0.15.0+ fails to build on WSL
+- **Why Bun?** Faster than npm for global package installation
+- **winget required** (Windows) - Install via Microsoft Store if not present
+- **Docker** uses WSL2 backend on Windows, native on Linux
