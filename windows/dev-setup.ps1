@@ -2,8 +2,8 @@
 # Installs development tools for a fresh Windows machine
 # Run as Administrator recommended
 # 
-# Note: WSL2 was considered but Zig v0.15.0+ fails to build on WSL,
-# so we stick to native Windows/PowerShell
+# Note: WSL2 is installed with Ubuntu for Docker and general Linux dev,
+# but Zig v0.15.0+ fails to build on WSL, so Zig dev stays on native Windows
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Developer Machine Setup Script" -ForegroundColor Cyan
@@ -21,7 +21,54 @@ Write-Host "winget found. Starting installations..." -ForegroundColor Green
 Write-Host ""
 
 $stepNum = 1
-$totalSteps = 14
+$totalSteps = 18
+
+# ============================================
+# WSL2 with Ubuntu (needed for Docker, general Linux dev)
+# ============================================
+Write-Host "[$stepNum/$totalSteps] Installing WSL2 with Ubuntu..." -ForegroundColor Yellow
+Write-Host "This enables Windows Subsystem for Linux 2 and installs Ubuntu (latest LTS)" -ForegroundColor Magenta
+
+# Check if WSL is already installed
+$wslInstalled = $false
+try {
+    $wslStatus = wsl --status 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $wslInstalled = $true
+        Write-Host "WSL is already installed." -ForegroundColor Green
+    }
+}
+catch {
+    # WSL not installed
+}
+
+if (-not $wslInstalled) {
+    Write-Host "Installing WSL2 (this may require a reboot)..." -ForegroundColor Yellow
+    wsl --install -d Ubuntu
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "WSL2 with Ubuntu installation initiated!" -ForegroundColor Green
+        Write-Host "NOTE: You may need to REBOOT and run this script again to complete setup." -ForegroundColor Magenta
+        Write-Host "After reboot, Ubuntu will prompt you to create a username/password." -ForegroundColor Magenta
+    }
+    else {
+        Write-Host "WSL installation may have failed. Try manually:" -ForegroundColor Yellow
+        Write-Host "  wsl --install -d Ubuntu" -ForegroundColor Cyan
+    }
+}
+else {
+    # Check if Ubuntu is installed
+    $distros = wsl --list --quiet 2>&1
+    if ($distros -match "Ubuntu") {
+        Write-Host "Ubuntu is already installed in WSL." -ForegroundColor Green
+    }
+    else {
+        Write-Host "Installing Ubuntu distribution..." -ForegroundColor Yellow
+        wsl --install -d Ubuntu
+        Write-Host "Ubuntu installation initiated." -ForegroundColor Green
+    }
+}
+Write-Host ""
+$stepNum++
 
 # ============================================
 # Prerequisites: Git (needed for many tools)
@@ -117,6 +164,49 @@ if ($LASTEXITCODE -eq 0) {
 }
 else {
     Write-Host "ZLS installation may have failed or was already installed" -ForegroundColor Yellow
+}
+Write-Host ""
+$stepNum++
+
+# ============================================
+# ARM GNU Toolchain
+# ============================================
+Write-Host "[$stepNum/$totalSteps] Installing ARM GNU Toolchain..." -ForegroundColor Yellow
+winget install -e --id Arm.ArmGnuToolchain --accept-package-agreements --accept-source-agreements
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "ARM GNU Toolchain installed successfully!" -ForegroundColor Green
+}
+else {
+    Write-Host "ARM GNU Toolchain installation may have failed or was already installed" -ForegroundColor Yellow
+}
+Write-Host ""
+$stepNum++
+
+# ============================================
+# Docker Desktop (uses WSL2 backend)
+# ============================================
+Write-Host "[$stepNum/$totalSteps] Installing Docker Desktop..." -ForegroundColor Yellow
+winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Docker Desktop installed successfully!" -ForegroundColor Green
+    Write-Host "Docker will use WSL2 backend (installed above)" -ForegroundColor Magenta
+}
+else {
+    Write-Host "Docker Desktop installation may have failed or was already installed" -ForegroundColor Yellow
+}
+Write-Host ""
+$stepNum++
+
+# ============================================
+# QEMU
+# ============================================
+Write-Host "[$stepNum/$totalSteps] Installing QEMU..." -ForegroundColor Yellow
+winget install -e --id SoftwareFreedomConservancy.QEMU --accept-package-agreements --accept-source-agreements
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "QEMU installed successfully!" -ForegroundColor Green
+}
+else {
+    Write-Host "QEMU installation may have failed or was already installed" -ForegroundColor Yellow
 }
 Write-Host ""
 $stepNum++
@@ -239,6 +329,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Installation Summary" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "Installed via wsl --install:" -ForegroundColor Green
+Write-Host "  - WSL2 with Ubuntu (latest LTS)" -ForegroundColor White
+Write-Host ""
 Write-Host "Installed via winget:" -ForegroundColor Green
 Write-Host "  - Git" -ForegroundColor White
 Write-Host "  - Bun" -ForegroundColor White
@@ -247,6 +340,9 @@ Write-Host "  - Go" -ForegroundColor White
 Write-Host "  - Python 3.12" -ForegroundColor White
 Write-Host "  - Zig" -ForegroundColor White
 Write-Host "  - ZLS (Zig Language Server)" -ForegroundColor White
+Write-Host "  - ARM GNU Toolchain" -ForegroundColor White
+Write-Host "  - Docker Desktop" -ForegroundColor White
+Write-Host "  - QEMU" -ForegroundColor White
 Write-Host "  - Cursor" -ForegroundColor White
 Write-Host "  - GitHub Desktop" -ForegroundColor White
 Write-Host "  - LazyGit" -ForegroundColor White
@@ -265,18 +361,23 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Post-Installation Steps" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "1. RESTART YOUR TERMINAL for PATH changes to take effect" -ForegroundColor Yellow
+Write-Host "1. REBOOT if WSL2 was just installed (required to complete WSL setup)" -ForegroundColor Yellow
+Write-Host "   After reboot, Ubuntu will prompt you to create a username/password." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "2. If Claude Code failed, run after restart:" -ForegroundColor Yellow
+Write-Host "2. RESTART YOUR TERMINAL for PATH changes to take effect" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "3. If Claude Code failed, run after restart:" -ForegroundColor Yellow
 Write-Host "   irm https://claude.ai/install.ps1 | iex" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "3. If Beads failed, run after restart:" -ForegroundColor Yellow
+Write-Host "4. If Beads failed, run after restart:" -ForegroundColor Yellow
 Write-Host "   irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "4. Download Antigravity from:" -ForegroundColor Yellow
+Write-Host "5. Download Antigravity from:" -ForegroundColor Yellow
 Write-Host "   https://antigravity.google" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "5. Verify installations:" -ForegroundColor Yellow
+Write-Host "6. Verify installations:" -ForegroundColor Yellow
+Write-Host "   wsl --version" -ForegroundColor Cyan
+Write-Host "   wsl --list" -ForegroundColor Cyan
 Write-Host "   git --version" -ForegroundColor Cyan
 Write-Host "   bun --version" -ForegroundColor Cyan
 Write-Host "   node --version" -ForegroundColor Cyan
@@ -284,6 +385,9 @@ Write-Host "   go version" -ForegroundColor Cyan
 Write-Host "   python --version" -ForegroundColor Cyan
 Write-Host "   zig version" -ForegroundColor Cyan
 Write-Host "   zls --version" -ForegroundColor Cyan
+Write-Host "   arm-none-eabi-gcc --version" -ForegroundColor Cyan
+Write-Host "   docker --version" -ForegroundColor Cyan
+Write-Host "   qemu-system-aarch64 --version" -ForegroundColor Cyan
 Write-Host "   claude --version" -ForegroundColor Cyan
 Write-Host "   lazygit --version" -ForegroundColor Cyan
 Write-Host "   bd version" -ForegroundColor Cyan

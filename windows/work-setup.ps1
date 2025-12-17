@@ -18,7 +18,7 @@ Write-Host "winget found. Starting installations..." -ForegroundColor Green
 Write-Host ""
 
 $stepNum = 1
-$totalSteps = 5
+$totalSteps = 7
 
 # ============================================
 # Google Chrome
@@ -35,6 +35,20 @@ Write-Host ""
 $stepNum++
 
 # ============================================
+# Google Drive
+# ============================================
+Write-Host "[$stepNum/$totalSteps] Installing Google Drive..." -ForegroundColor Yellow
+winget install -e --id Google.GoogleDrive --accept-package-agreements --accept-source-agreements
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Google Drive installed successfully!" -ForegroundColor Green
+}
+else {
+    Write-Host "Google Drive installation may have failed or was already installed" -ForegroundColor Yellow
+}
+Write-Host ""
+$stepNum++
+
+# ============================================
 # 7-Zip
 # ============================================
 Write-Host "[$stepNum/$totalSteps] Installing 7-Zip..." -ForegroundColor Yellow
@@ -44,6 +58,20 @@ if ($LASTEXITCODE -eq 0) {
 }
 else {
     Write-Host "7-Zip installation may have failed or was already installed" -ForegroundColor Yellow
+}
+Write-Host ""
+$stepNum++
+
+# ============================================
+# WireGuard VPN
+# ============================================
+Write-Host "[$stepNum/$totalSteps] Installing WireGuard..." -ForegroundColor Yellow
+winget install -e --id WireGuard.WireGuard --accept-package-agreements --accept-source-agreements
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "WireGuard installed successfully!" -ForegroundColor Green
+}
+else {
+    Write-Host "WireGuard installation may have failed or was already installed" -ForegroundColor Yellow
 }
 Write-Host ""
 $stepNum++
@@ -94,7 +122,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Installed via winget:" -ForegroundColor Green
 Write-Host "  - Google Chrome" -ForegroundColor White
+Write-Host "  - Google Drive" -ForegroundColor White
 Write-Host "  - 7-Zip" -ForegroundColor White
+Write-Host "  - WireGuard" -ForegroundColor White
 Write-Host "  - ENERCALC" -ForegroundColor White
 Write-Host "  - PDF-XChange Editor" -ForegroundColor White
 Write-Host ""
