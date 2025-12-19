@@ -18,6 +18,15 @@ irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex
 go install github.com/Dicklesworthstone/beads_viewer/cmd/bv@latest
 ```
 
+> **Important**: Ensure your Go bin directory is in your PATH.
+> ```powershell
+> # Quick set for current session:
+> $env:PATH += ";$env:USERPROFILE\go\bin"
+> 
+> # Permanent (User PATH):
+> [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:USERPROFILE\go\bin", "User")
+> ```
+
 ### 3. Initialize Beads
 
 ```powershell
@@ -32,6 +41,24 @@ bd setup claude
 /plugin install beads
 # Restart Claude Code
 ```
+
+### 4. Using Beads Viewer
+
+> **Note**: `bv` requires a project initialized with `bd init` to have data to display.
+
+```powershell
+# Navigate to your project directory, then:
+bv              # Launch TUI viewer
+bv --help       # See all commands
+bv --robot      # JSON output for AI agents
+```
+
+**Key TUI shortcuts:**
+- `?` - Help
+- `j/k` - Navigate up/down
+- `Enter` - View bead details
+- `g` - Graph visualization
+- `q` - Quit
 
 ---
 
