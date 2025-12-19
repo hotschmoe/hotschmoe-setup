@@ -158,6 +158,9 @@ bv --robot-alerts      # Check for blocking cascades, priority mismatches
 
 Subagents are defined in `.claude/agents/` using Markdown files with YAML frontmatter.
 
+install gemini-cli
+```npm install -g @google/gemini-cli@latest```
+
 ### Directory Structure
 
 ```
