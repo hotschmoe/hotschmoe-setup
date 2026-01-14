@@ -1,4 +1,4 @@
-# CLAUDE.md — Stratify
+# CLAUDE.md - Laminae
 
 ## RULE 1 – ABSOLUTE (DO NOT EVER VIOLATE THIS)
 
@@ -33,6 +33,14 @@ Rules:
 
 If that audit trail is missing, then you must act as if the operation never happened.
 
+### Version Updates (SemVer)
+
+When making commits, update the `version` in `build.zig.zon` following [Semantic Versioning](https://semver.org/):
+
+- **MAJOR** (X.0.0): Breaking changes or incompatible API modifications
+- **MINOR** (0.X.0): New features, backward-compatible additions
+- **PATCH** (0.0.X): Bug fixes, small improvements, documentation
+
 ---
 
 ### Code Editing Discipline
@@ -47,14 +55,25 @@ If that audit trail is missing, then you must act as if the operation never happ
 
 ---
 
-### Backwards Compatibility & File Sprawl
+### No Legacy Code - Full Migrations Only
 
-We optimize for a clean architecture, not backwards compatibility.
+We optimize for clean architecture, not backwards compatibility. **When we refactor, we fully migrate.**
 
-- No "compat shims" or "v2" file clones.
-- When changing behavior, migrate callers and remove old code **inside the same file**.
-- New files are only for genuinely new domains that don't fit existing modules.
-- The bar for adding files is very high.
+- No "compat shims", "v2" file clones, or deprecation wrappers
+- When changing behavior, migrate ALL callers and remove old code **in the same commit**
+- No `_legacy` suffixes, no `_old` prefixes, no "will remove later" comments
+- New files are only for genuinely new domains that don't fit existing modules
+- The bar for adding files is very high
+
+**Rationale**: Legacy compatibility code creates technical debt that compounds. A clean break is always better than a gradual migration that never completes.
+
+---
+
+## Philosophy
+
+This codebase will outlive you. Every shortcut becomes someone else's burden. Patterns you establish will be copied. Corners you cut will be cut again.
+
+Fight entropy. Leave the codebase better than you found it.
 
 ---
 
@@ -110,76 +129,26 @@ bd hooks install                 # Update git hooks
 bd daemons killall               # Restart daemons
 ```
 
----
+### Context Preservation During Debugging
 
-## Beads Viewer (bv) - Triage Engine
-
-bv is a graph-aware triage engine for Beads projects. It provides precomputed metrics (PageRank, betweenness, critical path, cycles) without parsing JSONL or hallucinating graph traversal.
-
-> [!CAUTION]
-> Use ONLY `--robot-*` flags. Bare `bv` launches an interactive TUI that blocks your session.
-
-### Entry Point
-
-**`bv --robot-triage` is the single entry point.** It returns:
-- `quick_ref`: at-a-glance counts + top 3 picks
-- `recommendations`: ranked actionable items with scores
-- `quick_wins`: low-effort high-impact items
-- `blockers_to_clear`: items that unblock the most downstream work
-- `commands`: copy-paste shell commands for next steps
+Long debugging sessions can lose context during compaction. **Commit frequently to preserve investigation state.**
 
 ```bash
-bv --robot-triage    # THE MEGA-COMMAND: start here
-bv --robot-next      # Minimal: just the single top pick
+# During debugging - commit investigation findings periodically
+git add -A && git commit -m "WIP: investigating X, found Y"
+bd create "Discovered: Z needs fixing" -t bug -p 2 --description="Found while debugging X"
+bd sync
+
+# At natural breakpoints (every 30-60 min of active debugging)
+bd sync  # Capture bead state changes
+git push  # Push to remote
 ```
 
-### Robot Commands
-
-| Command | Returns |
-|---------|---------|
-| `--robot-triage` | Full project snapshot with ranked recommendations |
-| `--robot-next` | Top priority item with claim command |
-| `--robot-plan` | Parallel execution tracks with `unblocks` lists |
-| `--robot-insights` | Full metrics: PageRank, betweenness, cycles, critical path |
-| `--robot-priority` | Priority misalignment detection |
-| `--robot-alerts` | Stale issues, blocking cascades, priority mismatches |
-| `--robot-suggest` | Hygiene: duplicates, missing deps, cycle breaks |
-| `--robot-history` | Bead-to-commit correlations and event timelines |
-| `--robot-forecast <id\|all>` | Dependency-aware ETA predictions |
-
-### Filtering & Scoping
-
-```bash
-bv --robot-plan --label backend           # Scope to label
-bv --recipe actionable --robot-plan       # Pre-filter: ready to work
-bv --recipe high-impact --robot-triage    # Top PageRank items
-bv --robot-triage --robot-triage-by-track # Group by parallel work streams
-bv --robot-triage --robot-triage-by-label # Group by domain
-```
-
-### Graph Export
-
-```bash
-bv --robot-graph --graph-format=mermaid   # Mermaid diagram
-bv --robot-graph --graph-format=dot       # Graphviz DOT
-bv --export-graph graph.html              # Interactive HTML
-```
-
-### jq Quick Reference
-
-```bash
-bv --robot-triage | jq '.quick_ref'              # At-a-glance summary
-bv --robot-triage | jq '.recommendations[0]'     # Top recommendation
-bv --robot-plan | jq '.plan.summary.highest_impact'  # Best unblock target
-bv --robot-insights | jq '.Cycles'               # Circular deps (must fix!)
-```
-
-### Two-Phase Analysis
-
-- **Phase 1 (instant):** degree, topo sort, density - always available
-- **Phase 2 (async, 500ms timeout):** PageRank, betweenness, cycles - check `status` flags
-
-For large graphs (>500 nodes), some metrics may be approximated. Always check `status` in output.
+**Why this matters:**
+- Compaction events lose conversational context but git history persists
+- Beads issues survive across sessions - use them to capture findings
+- "WIP" commits are fine - squash later when the fix is complete
+- A partially-documented investigation beats starting over
 
 ---
 
@@ -196,214 +165,414 @@ For large graphs (>500 nodes), some metrics may be approximated. Always check `s
 
 **Work is not complete until `git push` succeeds.**
 
+### Post-Session Code Cleanup
+
+After long or complex sessions, consider running the code-simplifier agent to clean up recently modified code:
+
+```
+Task(code-simplifier) - Simplifies and refines code for clarity, consistency, and maintainability
+```
+
+This agent focuses on recently modified files and helps reduce complexity that can accumulate during extended development sessions while preserving all functionality.
+
 ---
 
 ## Claude Agents
 
-Two specialized agents are available in `.claude/agents/`:
+Specialized agents are available in `.claude/agents/`. Agents use YAML frontmatter format:
 
-### coder-sonnet
+```yaml
+---
+name: agent-name
+description: What this agent does
+model: sonnet|haiku|opus
+tools:
+  - Bash
+  - Read
+  - Edit
+---
+```
 
-Fast code implementer for precise execution of tasks. Use for:
-- Quick, targeted code changes
-- Following existing patterns and conventions
-- Atomic commits with clear descriptions
+### Available Agents
 
-### gemini-analyzer
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| coder-sonnet | sonnet | Fast, precise code changes with atomic commits |
+| gemini-analyzer | sonnet | Large-context analysis via Gemini CLI (1M+ context) |
+| build-verifier | sonnet | Pre-merge validation for all 4 kernel variants |
+| regression-detector | haiku | Smoke token comparison against baseline |
+| dtb-analyzer | sonnet | Device tree analysis for driver development |
 
-Delegates large-context analysis to Gemini CLI. Use for:
-- Large pattern recognition across the codebase
-- Architecture analysis requiring 1M+ context
-- Full repository scans
+### Disabling Agents
 
-Commands:
-```bash
-gemini --all-files -p "prompt here"  # Full repo scan
-gemini -p "prompt here"              # Specific prompt
+To disable specific agents in `settings.json` or `--disallowedTools`:
+```json
+{
+  "disallowedTools": ["Task(build-verifier)", "Task(gemini-analyzer)"]
+}
 ```
 
 ---
 
-## Contribution Policy
+## Claude Skills
 
-Remove any mention of contributing/contributors from README and don't reinsert it.
+Skills are invoked via `/skill-name`. Available in `.claude/skills/`.
 
+### Skill Frontmatter (v2.1+)
+
+Skills now support YAML frontmatter with advanced options:
+
+```yaml
 ---
-
-# PROJECT-LANGUAGE-SPECIFIC: Rust
-
-> **To adapt for another language:** Replace this entire section with language-specific toolchain, testing, best practices, and code search examples.
-
-## Rust Toolchain
-
-- **Rust Edition**: 2021 (check `Cargo.toml` for exact version)
-- Build: `cargo build` (add `--release` for optimized builds)
-- Test: `cargo test` (185 tests: 149 unit + 36 doc)
-- Format: `cargo fmt` (run before commits)
-- Lint: `cargo clippy`
-
-### Key Commands
-
-```bash
-# Build and run GUI (native)
-cargo run --bin calc_gui
-
-# Build release
-cargo build --release --bin calc_gui
-
-# Run all tests
-cargo test
-
-# Build CLI (placeholder only)
-cargo run --bin calc_cli
-
-# Build and run WebAssembly (working with WebGPU)
-rustup target add wasm32-unknown-unknown
-cd calc_gui && trunk serve --open
+name: skill-name
+description: What this skill does
+# Run in forked sub-agent context (isolated from main conversation)
+context: fork
+# Specify which agent executes this skill
+agent: coder-sonnet
+---
 ```
 
-### Cargo Workspace
+| Field | Description |
+|-------|-------------|
+| `context: fork` | Run skill in isolated sub-agent context |
+| `agent: <name>` | Execute skill using specified agent type |
 
-- Lockfile: `Cargo.lock` (auto-managed by Cargo)
-- Dependencies: Defined in workspace `Cargo.toml`
-- Clean: `cargo clean` to remove build artifacts
+### Built-in Commands
 
----
+| Command | Purpose |
+|---------|---------|
+| `/plan` | Enter plan mode for implementation design |
+| `/context` | Manage context files and imports |
+| `/help` | Show available commands |
 
-## Logging & Console Output
+### Project Skills
 
-- Use structured logging with `log` or `tracing` crates; avoid raw `println!` for production.
-- GUI output goes through Iced; CLI through ratatui if needed.
-- Errors should use `thiserror` or `anyhow` for context and chaining.
+| Skill | Purpose |
+|-------|---------|
+| `/test` | Run test_all.zig with smart variant selection |
+| `/verify` | Build all variants and check for regressions |
+| `/symbolize <addr>` | Resolve kernel address to function name |
+| `/syscall` | Guided syscall addition workflow |
+| `/stack-check` | Analyze kernel stack usage patterns |
 
----
+### Skill Hot-Reload
 
-## Third-Party Libraries
-
-When unsure of an API, look up current docs rather than guessing. Key dependencies:
-
-- **iced 0.14**: GUI framework (Elm architecture) with canvas support
-- **ratatui**: TUI framework for CLI interfaces
-- **typst 0.14 + typst-pdf**: PDF generation with BerkeleyMono font
-- **serde / serde_json**: Serialization (JSON for `.stf` project files)
-- **fs2**: Cross-platform file locking for NAS/cloud drive safety
-- **rfd**: Native file dialogs
-- **wgpu 27.0**: WebGPU for native and WASM rendering
-- **trunk**: WASM build tool for browser deployment
+Skills in `.claude/skills/` are automatically discovered without restart. Edit or add skills and they become immediately available.
 
 ---
 
-## Testing Guidelines
+# PROJECT-LANGUAGE-SPECIFIC SECTION
 
-### Test Commands
+> **Template Section**: Replace this entire section with language-specific guidance when copying to a new project. Delete this notice after customizing.
 
-```bash
-cargo test                              # All tests (185: 149 unit + 36 doc)
-cargo test -- --nocapture               # Show println! output
-cargo test beam_                        # Run tests matching pattern
-cargo test --doc                        # Doc tests only
-cargo test -p calc_core                 # Tests for specific crate
+This section documents **language-level patterns, idioms, and gotchas** that apply project-wide. It should be customized for each project's primary language(s).
+
+---
+
+## What to Include Here
+
+### 1. Language Version & Toolchain
+
+Document the exact version and core toolchain commands:
+
+```
+- Language version (e.g., "Python 3.12", "Zig 0.15.2", "Rust 1.75")
+- Build command (e.g., `npm run build`, `cargo build`, `zig build`)
+- Format command (e.g., `black .`, `rustfmt`, `zig fmt`)
+- Lint command if separate from build
+- Package manager or "no dependencies" policy
 ```
 
-### Test Patterns
+### 2. Error Handling Patterns
 
-- Use `#[test]` attribute for unit tests
-- Use `#[cfg(test)]` modules for test-only code
-- Use `tempfile` crate for temporary files
-- Use `assert!`, `assert_eq!`, `assert_ne!` macros
-- Doc tests: code blocks in `///` comments are tested automatically
+Show the project's preferred error handling style with examples:
+
+- How to propagate errors (try/catch, Result types, error unions)
+- When to use explicit error types vs. generic errors
+- Panic/assert policies - when it's acceptable vs. forbidden
+
+### 3. Memory & Resource Management
+
+Document allocation patterns:
+
+- Manual vs. automatic memory management
+- Resource cleanup idioms (defer, RAII, context managers)
+- Ownership and borrowing conventions if applicable
+
+### 4. Type System Conventions
+
+- Preferred null/optional handling patterns
+- Type annotation requirements
+- Generic/comptime usage guidelines
+- Struct/class organization preferences
+
+### 5. Build System Details
+
+- Build configurations/variants (debug, release, etc.)
+- Build options and flags
+- Multi-target or cross-compilation setup
+
+### 6. Language-Specific Bug Severity
+
+Categorize bugs by severity for this language:
+
+**Critical** - Bugs that crash, corrupt data, or cause undefined behavior
+- Example for Rust: "Use of `unsafe` without safety comments"
+- Example for Python: "Mutable default arguments"
+- Example for Zig: "`.?` on null in kernel code"
+
+**Important** - Bugs that should be fixed before merge
+- Ignoring returned errors
+- Resource leaks
+- Incorrect type coercions
+
+**Contextual** - Address when convenient
+- TODO comments
+- Unused imports
+- Suboptimal patterns
+
+### 6. Code Examples
+
+Provide **annotated code examples** showing correct patterns:
+
+```
+// GOOD: Shows the preferred way
+code_example_showing_correct_pattern();
+
+// BAD: Shows common mistakes to avoid
+code_example_showing_antipattern();
+```
+
+Cover commonly needed patterns:
+- File/resource handling
+- Concurrency primitives
+- External API calls
+- Logging/debugging output
 
 ---
 
-## Rust Best Practices
+## Example: If Your Project Uses Python
+
+```markdown
+## Python Toolchain (3.12+)
+
+- **Version**: Python 3.12.x
+- **Package Manager**: uv (`uv sync` to install dependencies)
+- **Format**: `ruff format .` (run before commits)
+- **Lint**: `ruff check .` and `mypy .`
+- **Test**: `pytest tests/`
 
 ### Error Handling
 
-```rust
-// Use Result and the ? operator for propagation
-fn load_config() -> Result<Config, CalcError> {
-    let content = std::fs::read_to_string(path)?;
-    let config: Config = serde_json::from_str(&content)?;
-    Ok(config)
-}
+# Use explicit exception types at API boundaries
+class ConfigError(Exception):
+    pass
 
-// Use .context() with anyhow for additional context
-use anyhow::Context;
-let data = read_file().context("failed to load project")?;
-```
+def load_config(path: Path) -> Config:
+    if not path.exists():
+        raise ConfigError(f"Config not found: {path}")
+    return parse_config(path.read_text())
 
-### Option Handling
+### Type Annotations
 
-```rust
-// Prefer pattern matching or combinators over unwrap()
-if let Some(item) = items.get(index) {
-    // safe to use item
-}
-
-// Use unwrap_or, unwrap_or_default, or unwrap_or_else
-let value = optional.unwrap_or(default_value);
-```
-
-### Division Safety
-
-```rust
-// Guard against division by zero
-let avg = if !items.is_empty() {
-    total / items.len() as f64
-} else {
-    0.0
-};
-```
-
-### Ownership & Borrowing
-
-```rust
-// Prefer borrowing over cloning when possible
-fn process(data: &BeamInput) -> BeamResult { ... }
-
-// Use Cow<str> for flexible string ownership
-use std::borrow::Cow;
-fn process_name(name: Cow<'_, str>) { ... }
+All public functions require full type annotations.
+Use `TypedDict` for structured dictionaries, not bare `dict`.
 ```
 
 ---
 
-## Code Search Tools
+## Example: If Your Project Uses TypeScript
 
-### ripgrep (rg) — Fast Text Search
+```markdown
+## TypeScript Toolchain
 
-Use when searching for literal strings or regex patterns:
+- **Version**: TypeScript 5.3+, Node 20 LTS
+- **Package Manager**: pnpm
+- **Build**: `pnpm build`
+- **Format**: `pnpm prettier --write .`
+- **Lint**: `pnpm eslint .`
+- **Test**: `pnpm vitest`
 
-```bash
-rg "unwrap()" -t rust              # Find all unwrap() calls
-rg "TODO|FIXME" -t rust            # Find todos
-rg "pub fn" src/                   # Find public functions
-rg -l "BeamInput" -t rust          # List files containing pattern
-rg -n "impl.*Display" -t rust      # Show line numbers
+### Null Handling
+
+// Prefer nullish coalescing over ||
+const value = config.timeout ?? 5000;
+
+// Use optional chaining for deep access
+const name = user?.profile?.displayName;
+
+// Never use `any` - use `unknown` and narrow
+function processInput(data: unknown): Result {
+    if (!isValidInput(data)) throw new ValidationError();
+    // data is now narrowed to ValidInput
+}
 ```
-
-### ast-grep — Structural Code Search
-
-Use when you need syntax-aware matching (ignores comments/strings, understands code structure):
-
-```bash
-ast-grep run -l rust -p '$X.unwrap()'        # Find all unwrap() calls
-ast-grep run -l rust -p 'panic!($$$)'        # Find all panic! macros
-ast-grep run -l rust -p 'fn $NAME() { $$$ }' # Find functions with no params
-ast-grep run -l rust -p 'clone()'            # Find all clone() calls
-```
-
-**When to use which:**
-- **ripgrep**: Quick searches, TODOs, config values, recon
-- **ast-grep**: Refactoring patterns, finding anti-patterns, policy checks
 
 ---
 
-## Bug Severity (Rust-specific)
+# PROJECT-SPECIFIC SECTION
 
-- **Critical**: `unwrap()` on None/Err in production paths, division by zero, panics, memory leaks (e.g., `Rc` cycles)
-- **Important**: Missing error propagation (`?`), `clone()` where borrow would suffice, unsafe blocks without justification
-- **Contextual**: TODO/FIXME, unused imports, dead code warnings
+> **Template Section**: Replace this entire section with project-specific details when copying to a new project. Delete this notice after customizing.
+
+This section documents **your specific project's architecture, workflows, and domain knowledge**. This is where you teach the AI about your codebase's unique structure and conventions.
+
+---
+
+## What to Include Here
+
+### 1. Project Overview
+
+A 2-3 sentence description of what this project is:
+
+- What problem does it solve?
+- What is the core architectural philosophy?
+- What are we explicitly NOT trying to do?
+
+Example:
+> "Laminae is a container-native research kernel for ARM64. Containers are first-class OS citizens. We are NOT recreating Linux - this is a clean-slate exploration."
+
+### 2. Directory Structure
+
+Document your key directories and their purposes. Include the **source of truth** for different concerns:
+
+```
+src/
+  core/           - Core business logic
+  api/            - External API handlers
+  models/         - Data models and schemas
+  utils/          - Shared utilities (avoid dumping ground)
+tests/
+  unit/           - Fast, isolated tests
+  integration/    - Tests requiring external services
+docs/
+  api/            - Generated API documentation
+  architecture/   - Design decisions and ADRs
+```
+
+Highlight any **generated files** that should not be manually edited:
+> **Never manually edit** `src/generated/client.ts` - it is regenerated from the OpenAPI spec.
+
+### 3. Key Architectural Patterns
+
+Document the patterns that are fundamental to understanding the codebase:
+
+- **Table-driven design**: "All routes are defined in `src/routes/table.ts`"
+- **Code generation**: "Run `make gen` to regenerate types from schema"
+- **Service boundaries**: "Services communicate only via message queue, never direct calls"
+- **Plugin architecture**: "Extensions go in `plugins/` and are auto-discovered"
+
+### 4. Common Development Workflows
+
+Document step-by-step workflows for common tasks:
+
+#### Adding a New API Endpoint
+1. Add route definition to `src/routes/table.ts`
+2. Implement handler in `src/handlers/<domain>.ts`
+3. Run `make gen` to regenerate client types
+4. Add tests in `tests/integration/api/`
+5. Verify with `make test`
+
+#### Adding a New Database Migration
+1. Create migration: `make migration name=add_users_table`
+2. Edit generated file in `migrations/`
+3. Apply locally: `make db-migrate`
+4. Test rollback: `make db-rollback`
+
+### 5. Testing Guidelines
+
+- How to run tests
+- Test file organization conventions
+- Required test coverage for different code areas
+- CI/CD expectations
+
+### 6. Debugging Tools & Techniques
+
+Document project-specific debugging:
+
+- Log aggregation commands
+- Common debug flags/environment variables
+- How to inspect internal state
+- Profiling commands
+
+### 7. Domain-Specific Knowledge
+
+Things that are unique to your problem domain:
+
+- Important business rules
+- Regulatory or compliance constraints
+- Integration points with external systems
+- Performance budgets or SLAs
+
+### 8. "Inspiration vs. Recreation" Guidance (if applicable)
+
+If your project draws from established systems while diverging intentionally:
+
+| Industry Standard | Our Approach | Rationale |
+|-------------------|--------------|-----------|
+| REST API | GraphQL | Reduce over-fetching for mobile clients |
+| Relational DB | Event sourcing | Audit trail requirements |
+
+**When to reference [Industry Standard]:**
+- DO: Study their auth patterns
+- DON'T: Copy their data model verbatim
+
+---
+
+## Example: For a Web API Project
+
+```markdown
+## Project Overview
+
+A REST API for the XYZ platform. Built on FastAPI with PostgreSQL.
+Key principle: All business logic in service layer, handlers are thin.
+
+## Key Directories
+
+- `src/api/routes/` - Route definitions (FastAPI routers)
+- `src/services/` - Business logic (one file per domain)
+- `src/repositories/` - Database access layer
+- `src/models/` - Pydantic models and SQLAlchemy ORM
+- `src/core/config.py` - **Source of truth** for all config
+
+## Common Workflows
+
+### Adding a New Endpoint
+
+1. Add route to appropriate router in `src/api/routes/`
+2. Add service method in `src/services/<domain>.py`
+3. Add repository method if DB access needed
+4. Add request/response models to `src/models/schemas/`
+5. Run `make test` and `make lint`
+```
+
+---
+
+## Example: For a CLI Tool Project
+
+```markdown
+## Project Overview
+
+A CLI tool for managing cloud infrastructure. Written in Go.
+Key principle: Subcommands are self-contained, share only through pkg/.
+
+## Key Directories
+
+- `cmd/` - Main entry points (one per subcommand)
+- `pkg/` - Shared packages (auth, api client, config)
+- `internal/` - Private implementation details
+- `configs/` - Default configuration files
+
+## Common Workflows
+
+### Adding a New Subcommand
+
+1. Create new package under `cmd/<name>/`
+2. Implement `Run()` function matching cobra.Command format
+3. Register in `cmd/root.go`
+4. Add tests in `cmd/<name>/<name>_test.go`
+5. Update `README.md` with usage examples
+```
 
 ---
 
