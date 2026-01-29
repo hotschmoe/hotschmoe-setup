@@ -5,15 +5,22 @@ we love you, Claude! do your best today
 <!-- END:header -->
 
 <!-- BEGIN:rule-1-no-delete -->
-## RULE 1 - ABSOLUTE (DO NOT EVER VIOLATE THIS)
+## RULE 1 - NO DELETIONS (ARCHIVE INSTEAD)
 
-You may NOT delete any file or directory unless I explicitly give the exact command **in this session**.
+You may NOT delete any file or directory. Instead, move deprecated files to `.archive/`.
 
-- This includes files you just created (tests, tmp files, scripts, etc.).
-- You do not get to decide that something is "safe" to remove.
-- If you think something should be removed, stop and ask. You must receive clear written approval **before** any deletion command is even proposed.
+**When you identify files that should be removed:**
+1. Create `.archive/` directory if it doesn't exist
+2. Move the file: `mv path/to/file .archive/`
+3. Notify me: "Moved `path/to/file` to `.archive/` - deprecated because [reason]"
 
-Treat "never delete files without permission" as a hard invariant.
+**Rules:**
+- This applies to ALL files, including ones you just created (tests, tmp files, scripts, etc.)
+- You do not get to decide that something is "safe" to delete
+- The `.archive/` directory is gitignored - I will review and permanently delete when ready
+- If `.archive/` doesn't exist and you can't create it, ask me before proceeding
+
+**Only I can run actual delete commands** (`rm`, `git clean`, etc.) after reviewing `.archive/`.
 <!-- END:rule-1-no-delete -->
 
 <!-- BEGIN:irreversible-actions -->
