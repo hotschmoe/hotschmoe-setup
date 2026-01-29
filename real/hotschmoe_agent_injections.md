@@ -1,6 +1,19 @@
-# CLAUDE.md - Laminae
+# Hotschmoe Agent Injections
+# SINGLE SOURCE OF TRUTH for Claude agent guidelines
+# Use haj.sh to inject sections into project CLAUDE.md files
+#
+# Section markers: <!-- BEGIN:section-name --> ... <!-- END:section-name -->
+# Usage: haj.sh inject <project-path> <section1> <section2> ...
+# Usage: haj.sh list (shows available sections)
 
-## RULE 1 – ABSOLUTE (DO NOT EVER VIOLATE THIS)
+<!-- BEGIN:header -->
+# CLAUDE.md
+
+we love you, Claude! do your best today
+<!-- END:header -->
+
+<!-- BEGIN:rule-1-no-delete -->
+## RULE 1 - ABSOLUTE (DO NOT EVER VIOLATE THIS)
 
 You may NOT delete any file or directory unless I explicitly give the exact command **in this session**.
 
@@ -9,9 +22,9 @@ You may NOT delete any file or directory unless I explicitly give the exact comm
 - If you think something should be removed, stop and ask. You must receive clear written approval **before** any deletion command is even proposed.
 
 Treat "never delete files without permission" as a hard invariant.
+<!-- END:rule-1-no-delete -->
 
----
-
+<!-- BEGIN:irreversible-actions -->
 ### IRREVERSIBLE GIT & FILESYSTEM ACTIONS
 
 Absolutely forbidden unless I give the **exact command and explicit approval** in the same message:
@@ -32,17 +45,19 @@ Rules:
    - When you ran it
 
 If that audit trail is missing, then you must act as if the operation never happened.
+<!-- END:irreversible-actions -->
 
+<!-- BEGIN:semver -->
 ### Version Updates (SemVer)
 
-When making commits, update the `version`
+When making commits, update the `version`:
 
 - **MAJOR** (X.0.0): Breaking changes or incompatible API modifications
 - **MINOR** (0.X.0): New features, backward-compatible additions
 - **PATCH** (0.0.X): Bug fixes, small improvements, documentation
+<!-- END:semver -->
 
----
-
+<!-- BEGIN:code-discipline -->
 ### Code Editing Discipline
 
 - Do **not** run scripts that bulk-modify code (codemods, invented one-off scripts, giant `sed`/regex refactors).
@@ -52,9 +67,9 @@ When making commits, update the `version`
 - ASCII diagrams are encouraged for visualizing flows.
 - Keep in-line comments to a minimum. Use external documentation for complex logic.
 - In-line commentary should be value-add, concise, and focused on info not easily gleaned from the code.
+<!-- END:code-discipline -->
 
----
-
+<!-- BEGIN:no-legacy -->
 ### No Legacy Code - Full Migrations Only
 
 We optimize for clean architecture, not backwards compatibility. **When we refactor, we fully migrate.**
@@ -66,9 +81,9 @@ We optimize for clean architecture, not backwards compatibility. **When we refac
 - The bar for adding files is very high
 
 **Rationale**: Legacy compatibility code creates technical debt that compounds. A clean break is always better than a gradual migration that never completes.
+<!-- END:no-legacy -->
 
----
-
+<!-- BEGIN:dev-philosophy -->
 ## Development Philosophy
 
 **Make it work, make it right, make it fast** - in that order.
@@ -78,9 +93,9 @@ We optimize for clean architecture, not backwards compatibility. **When we refac
 **Fight entropy** - leave the codebase better than you found it.
 
 **Inspiration vs. Recreation** - take the opportunity to explore unconventional or new ways to accomplish tasks. Do not be afraid to challenge assumptions or propose new ideas. BUT we also do not want to reinvent the wheel for the sake of it. If there is a well-established pattern or library take inspiration from it and make it your own. (or suggest it for inclusion in the codebase)
+<!-- END:dev-philosophy -->
 
----
-
+<!-- BEGIN:testing-philosophy -->
 ## Testing Philosophy: Diagnostics, Not Verdicts
 
 **Tests are diagnostic tools, not success criteria.** A passing test suite does not mean the code is good. A failing test does not mean the code is wrong.
@@ -109,8 +124,9 @@ Only if all three answers are "yes" should you fix the code.
 - A specification to code against
 
 **The real success metric**: Does the code further our project's vision and goals?
----
+<!-- END:testing-philosophy -->
 
+<!-- BEGIN:code-simplifier -->
 ### Post-Session Code Cleanup
 
 After long or complex sessions, consider running the code-simplifier agent to clean up recently modified code:
@@ -120,9 +136,9 @@ Task(code-simplifier) - Simplifies and refines code for clarity, consistency, an
 ```
 
 This agent focuses on recently modified files and helps reduce complexity that can accumulate during extended development sessions while preserving all functionality.
+<!-- END:code-simplifier -->
 
----
-
+<!-- BEGIN:claude-agents -->
 ## Claude Agents
 
 Specialized agents are available in `.claude/agents/`. Agents use YAML frontmatter format:
@@ -147,9 +163,9 @@ tools:
 | gemini-analyzer | sonnet | Large-context analysis via Gemini CLI (1M+ context) |
 
 (extend agents as created)
+<!-- END:claude-agents -->
 
----
-
+<!-- BEGIN:claude-skills -->
 ## Claude Skills
 
 Skills are invoked via `/skill-name`. Available in `.claude/skills/`.
@@ -249,44 +265,58 @@ Research $ARGUMENTS thoroughly...
 
 Built-in agents: `Explore` (read-only research), `Plan` (planning mode), or define custom agents in `.claude/agents/`.
 
-### Project Skills
-
-| Skill | Purpose |
-|-------|---------|
-| `/test` | Run test_all.zig with smart variant selection |
-| `/verify` | Build all variants and check for regressions |
-| `/symbolize <addr>` | Resolve kernel address to function name |
-| `/syscall` | Guided syscall addition workflow |
-| `/stack-check` | Analyze kernel stack usage patterns |
-
 ### Skill Discovery
 
 Skills in `.claude/skills/` are automatically discovered without restart. Edit or add skills and they become immediately available. Nested directories (e.g., `packages/frontend/.claude/skills/`) are also discovered.
+<!-- END:claude-skills -->
 
----
+<!-- BEGIN:project-language-template -->
+# PROJECT-SPECIFIC SECTION
 
-# PROJECT-LANGUAGE-SPECIFIC SECTION
+> **Template**: Replace this section with project-specific content. Remove markers after customizing.
 
-> **Template Section**: Replace this entire section with language-specific guidance when copying to a new project. Delete this notice after customizing.
+## Project Overview
 
-This section documents **language-level patterns, idioms, and gotchas** that apply project-wide. It should be customized for each project's primary language(s).
+One paragraph: What is this project? What are the key principles or constraints?
 
----
+## Toolchain
 
-## What to Include Here
+| Item | Value |
+|------|-------|
+| Language | e.g., Python 3.12, Zig 0.15.2, Rust 1.75 |
+| Build | e.g., `npm run build`, `cargo build` |
+| Format | e.g., `black .`, `rustfmt` |
+| Lint | e.g., `eslint`, or "integrated with build" |
+| Deps | e.g., `npm install`, or "no external deps" |
+| Test | e.g., `pytest`, `cargo test` |
 
-### 1. Language Version & Toolchain
+## Architecture (if applicable)
 
-Document the exact version and core toolchain commands:
+Brief description of project structure. Use ASCII diagrams for complex layouts.
 
-```
-- Language version (e.g., "Python 3.12", "Zig 0.15.2", "Rust 1.75")
-- Build command (e.g., `npm run build`, `cargo build`, `zig build`)
-- Format command (e.g., `black .`, `rustfmt`, `zig fmt`)
-- Lint command if separate from build
-- Package manager or "no dependencies" policy
-```
+## Language Best Practices
 
+Document idioms and patterns specific to this project:
+- Error handling conventions
+- Memory/resource management patterns
+- Async patterns (if applicable)
+- Project-specific abstractions
+
+## Common Workflows
+
+How to add a feature, fix a bug, add tests. Step-by-step for recurring tasks.
+
+## Bug Severity
+
+| Level | Examples |
+|-------|----------|
+| Critical | Crashes, data loss, security holes |
+| Important | Incorrect behavior, resource leaks |
+| Contextual | TODOs, style issues, minor optimizations |
+<!-- END:project-language-template -->
+
+<!-- BEGIN:footer -->
 ---
 
 we love you, Claude! do your best today
+<!-- END:footer -->
