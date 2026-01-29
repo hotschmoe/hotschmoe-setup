@@ -516,9 +516,123 @@ fi
 
 ---
 
+---
+
+## Option C: Beads Integration (ralph_c.sh)
+
+**Concept**: Same as Option B, but use beads (`br`) as the task tracker instead of tasks.md.
+
+### Why Beads Over tasks.md
+
+| Aspect | tasks.md | Beads |
+|--------|----------|-------|
+| **Query** | grep/awk parsing | `br ready --json` |
+| **Priority** | Manual ordering | Native priority field |
+| **Status** | Checkbox `[ ]`/`[x]` | open/in_progress/closed |
+| **Filtering** | DIY | `br ready`, `br blocked` |
+| **Dependencies** | Implicit ordering | Explicit `--deps` links |
+| **Git integration** | Manual commits | `.beads/` auto-syncs |
+| **Multiple workers** | Conflicts likely | Handles concurrent access |
+
+### Workflow
+
+```
++------------------+
+|   br ready       |  <-- Entry point for loop
++--------+---------+
+         |
+         v
++--------+---------+
+| Get next task    |
+| (highest prio)   |
++--------+---------+
+         |
+         v
++--------+---------+
+| br update        |
+| --status         |
+| in_progress      |
++--------+---------+
+         |
+         v
++--------+---------+
+| Claude executes  |
+| atomic task      |
++--------+---------+
+         |
+    +----+----+
+    |         |
+    v         v
+[success]  [failed]
+    |         |
+    v         v
+br close   br update
+    |      (stays in_progress
+    v       for retry)
+br sync
+    |
+    v
+git push
+```
+
+### Bootstrap Creates Beads
+
+Instead of writing tasks.md, bootstrap generates JSON and creates beads:
+
+```bash
+# Claude outputs structured JSON
+{
+  "sprints": [
+    {
+      "number": 1,
+      "name": "Foundation",
+      "tasks": [
+        {"id": "T1.1", "title": "...", "description": "...", "priority": 2}
+      ]
+    }
+  ]
+}
+
+# Script creates beads from JSON
+br create "[T1.1] Initialize project" --type task --priority 2 --description "..."
+br create "[T1.2] Add tests" --type task --priority 2 --description "..."
+```
+
+### Key Commands in ralph_c
+
+```bash
+# Get next ready task as JSON
+br ready --json | jq -s '.[0]'
+
+# Claim task
+br update bd-abc123 --status in_progress
+
+# Complete task
+br close bd-abc123 --reason "Implemented and tested"
+
+# Sync to git
+br sync
+git add .beads/ && git commit -m "beads: sync"
+```
+
+---
+
+## Implementation Summary
+
+Three scripts created:
+
+| Script | Approach | Entry Point | State Storage |
+|--------|----------|-------------|---------------|
+| `ralph_a.sh` | Session persistence | Loop with `--resume` | `.ralph-session` |
+| `ralph_b.sh` | Task manifest | Parse `tasks.md` | `tasks.md` checkboxes |
+| `ralph_c.sh` | Beads integration | `br ready` | `.beads/` directory |
+
+---
+
 ## Next Steps
 
-1. Decide which option to prototype first
-2. If Option B: refine the bootstrap prompt and tasks.md format
-3. If Option A: test `--resume` behavior with `--print` mode
-4. Either way: test on a small sample project before using on real work
+1. **Test on small project**: Create a minimal SPEC.md/VISION.md/testing.md and run each
+2. **Verify `--resume`**: Check if ralph_a's session persistence actually works with `--print`
+3. **Beads setup**: Install beads and verify ralph_c bootstrap creates valid issues
+4. **Error handling**: All scripts need better error recovery for Claude failures
+5. **Parallel execution**: Consider running multiple Claude instances for independent tasks
