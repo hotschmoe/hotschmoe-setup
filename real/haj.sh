@@ -107,19 +107,28 @@ for section in $SECTIONS; do
 
     # Replace section in target using temp file
     temp_file=$(mktemp)
+    
+    # Build the exact marker strings
+    begin_marker="<!-- BEGIN:$section -->"
+    end_marker="<!-- END:$section -->"
 
-    awk -v section="$section" -v new_content="$new_content" '
+    awk -v begin_marker="$begin_marker" -v end_marker="$end_marker" -v new_content="$new_content" '
         BEGIN { in_section = 0 }
-        $0 ~ "<!-- BEGIN:" section " -->" {
-            in_section = 1
-            print new_content
-            next
+        {
+            # Check for begin marker (exact match or contains)
+            if (index($0, begin_marker) > 0) {
+                in_section = 1
+                print new_content
+                next
+            }
+            # Check for end marker
+            if (index($0, end_marker) > 0) {
+                in_section = 0
+                next
+            }
+            # Print lines outside of section
+            if (!in_section) { print }
         }
-        $0 ~ "<!-- END:" section " -->" {
-            in_section = 0
-            next
-        }
-        !in_section { print }
     ' "$TARGET" > "$temp_file"
 
     mv "$temp_file" "$TARGET"
