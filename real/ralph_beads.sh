@@ -1,6 +1,7 @@
 #!/bin/bash
-# ralph_c.sh - Beads-integrated development loop
-# Uses beads (br) for atomic task tracking instead of tasks.md
+# hot_ralph - Beads-integrated development loop
+# Requires: .beads directory with ready tasks already created
+# Uses beads (br) for atomic task tracking
 set -e
 
 PROJECT_DIR="${1:-.}"
@@ -39,6 +40,14 @@ check_requirements() {
         echo "Install from: https://github.com/Dicklesworthstone/beads_rust"
         exit 1
     fi
+
+    if [[ ! -d "$PROJECT_DIR/.beads" ]]; then
+        echo "ERROR: .beads directory not found"
+        echo "Initialize beads and create tasks before running hot_ralph:"
+        echo "  br init"
+        echo "  br create \"Task title\" --type task --description \"...\""
+        exit 1
+    fi
 }
 
 run_claude() {
@@ -57,21 +66,9 @@ run_claude() {
     echo ""
 }
 
-run_claude_capture() {
-    local prompt="$1"
-    claude --print "$prompt" 2>/dev/null
-}
-
 # ═══════════════════════════════════════════════════════════════════
 #  BEADS INTEGRATION
 # ═══════════════════════════════════════════════════════════════════
-
-beads_init() {
-    if [[ ! -d "$PROJECT_DIR/.beads" ]]; then
-        log "Initializing beads..."
-        br init
-    fi
-}
 
 beads_ready_count() {
     br ready --json 2>/dev/null | jq -s 'length' 2>/dev/null || echo "0"
@@ -95,138 +92,9 @@ beads_complete() {
     log "Completed task: $id"
 }
 
-beads_create_task() {
-    local title="$1"
-    local description="$2"
-    local priority="${3:-2}"
-    local sprint="${4:-}"
-
-    local label_flag=""
-    if [[ -n "$sprint" ]]; then
-        label_flag="--labels sprint:$sprint"
-    fi
-
-    br create "$title" \
-        --type task \
-        --priority "$priority" \
-        --description "$description" \
-        $label_flag \
-        --json 2>/dev/null | jq -r '.id // empty'
-}
-
 beads_sync() {
     br sync >/dev/null 2>&1
     log "Beads synced"
-}
-
-beads_has_tasks() {
-    local count=$(br list --json 2>/dev/null | jq -s 'length' 2>/dev/null || echo "0")
-    [[ "$count" -gt 0 ]]
-}
-
-# ═══════════════════════════════════════════════════════════════════
-#  BOOTSTRAP - Generate tasks from SPEC and create beads
-# ═══════════════════════════════════════════════════════════════════
-
-bootstrap_beads() {
-    beads_init
-
-    if beads_has_tasks; then
-        local ready_count=$(beads_ready_count)
-        log "Beads already has tasks ($ready_count ready)"
-        return
-    fi
-
-    log "Bootstrapping: Generating tasks from spec..."
-
-    # Generate structured task list
-    local tasks_json=$(run_claude_capture "Read @SPEC.md @VISION.md @TESTING.md carefully.
-
-Break this project into atomic tasks. Output as JSON array:
-
-\`\`\`json
-{
-  \"sprints\": [
-    {
-      \"number\": 1,
-      \"name\": \"Sprint Name\",
-      \"goal\": \"What this sprint delivers\",
-      \"demo\": \"command to verify sprint works\",
-      \"tasks\": [
-        {
-          \"id\": \"T1.1\",
-          \"title\": \"Short task title\",
-          \"description\": \"Detailed implementation steps and validation criteria\",
-          \"priority\": 2
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-Rules:
-- Each task is atomic (one commit, one focused change)
-- Each task has clear validation criteria in description
-- Priority: 0=critical, 1=high, 2=normal, 3=low
-- Order tasks within sprint by dependency
-- Be exhaustive and technical
-
-Output ONLY valid JSON, no markdown fences or commentary.")
-
-    # Clean up potential markdown fences
-    tasks_json=$(echo "$tasks_json" | sed 's/^```json//; s/^```//' | tr -d '\r')
-
-    # Validate JSON
-    if ! echo "$tasks_json" | jq empty 2>/dev/null; then
-        log "ERROR: Invalid JSON from task generation"
-        echo "$tasks_json" > "$PROJECT_DIR/.ralph-debug-tasks.json"
-        log "Debug output saved to .ralph-debug-tasks.json"
-        exit 1
-    fi
-
-    # Create beads from JSON
-    log "Creating beads from generated tasks..."
-
-    local sprint_count=$(echo "$tasks_json" | jq '.sprints | length')
-    local task_count=0
-
-    for ((s=0; s<sprint_count; s++)); do
-        local sprint_num=$(echo "$tasks_json" | jq -r ".sprints[$s].number")
-        local sprint_name=$(echo "$tasks_json" | jq -r ".sprints[$s].name")
-
-        log "Sprint $sprint_num: $sprint_name"
-
-        local sprint_tasks=$(echo "$tasks_json" | jq ".sprints[$s].tasks | length")
-
-        for ((t=0; t<sprint_tasks; t++)); do
-            local task_id=$(echo "$tasks_json" | jq -r ".sprints[$s].tasks[$t].id")
-            local title=$(echo "$tasks_json" | jq -r ".sprints[$s].tasks[$t].title")
-            local desc=$(echo "$tasks_json" | jq -r ".sprints[$s].tasks[$t].description")
-            local priority=$(echo "$tasks_json" | jq -r ".sprints[$s].tasks[$t].priority")
-
-            # Prepend task ID to title for tracking
-            local full_title="[$task_id] $title"
-
-            local bead_id=$(beads_create_task "$full_title" "$desc" "$priority" "$sprint_num")
-
-            if [[ -n "$bead_id" ]]; then
-                log "  Created: $task_id -> $bead_id"
-                ((task_count++))
-            else
-                log "  FAILED: $task_id"
-            fi
-        done
-    done
-
-    beads_sync
-    log "Bootstrap complete: $task_count tasks created"
-
-    # Show summary
-    echo ""
-    echo "=== TASK SUMMARY ==="
-    br list --json | jq -r '.[] | "[\(.priority)] \(.title)"' | head -20
-    echo ""
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -235,9 +103,17 @@ Output ONLY valid JSON, no markdown fences or commentary.")
 
 cd "$PROJECT_DIR"
 check_requirements
-bootstrap_beads
 
-log "Starting ralph_c (beads mode)"
+# Verify there are ready tasks
+ready_count=$(beads_ready_count)
+if [[ "$ready_count" -eq 0 ]]; then
+    echo "ERROR: No ready tasks in beads"
+    echo "Create tasks before running hot_ralph:"
+    echo "  br create \"Task title\" --type task --description \"...\""
+    exit 1
+fi
+
+log "Starting hot_ralph (beads mode)"
 log "Project: $PROJECT_DIR"
 
 while true; do
