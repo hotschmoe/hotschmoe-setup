@@ -6,8 +6,8 @@ set -e
 
 PROJECT_DIR="${1:-.}"
 
-# jq filters for streaming JSON output
-STREAM_TEXT='select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text // empty'
+# jq filter for streaming JSON output
+JQ_STREAM='select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text // empty'
 
 # ═══════════════════════════════════════════════════════════════════
 #  UTILITIES
@@ -17,29 +17,31 @@ log() {
     echo "[$(date '+%H:%M:%S')] $*"
 }
 
+require_file() {
+    if [[ ! -f "$PROJECT_DIR/$1" ]]; then
+        echo "ERROR: Missing $1"
+        exit 1
+    fi
+}
+
+require_command() {
+    local cmd="$1"
+    local msg="$2"
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "ERROR: $cmd is required but not installed"
+        [[ -n "$msg" ]] && echo "$msg"
+        exit 1
+    fi
+}
+
 check_requirements() {
-    for file in SPEC.md VISION.md TESTING.md; do
-        if [[ ! -f "$PROJECT_DIR/$file" ]]; then
-            echo "ERROR: Missing $file"
-            exit 1
-        fi
-    done
+    require_file SPEC.md
+    require_file VISION.md
+    require_file TESTING.md
 
-    if ! command -v jq &> /dev/null; then
-        echo "ERROR: jq is required but not installed"
-        exit 1
-    fi
-
-    if ! command -v claude &> /dev/null; then
-        echo "ERROR: claude CLI is required but not installed"
-        exit 1
-    fi
-
-    if ! command -v br &> /dev/null; then
-        echo "ERROR: beads (br) is required but not installed"
-        echo "Install from: https://github.com/Dicklesworthstone/beads_rust"
-        exit 1
-    fi
+    require_command jq
+    require_command claude
+    require_command br "Install from: https://github.com/Dicklesworthstone/beads_rust"
 
     if [[ ! -d "$PROJECT_DIR/.beads" ]]; then
         echo "ERROR: .beads directory not found"
@@ -52,17 +54,12 @@ check_requirements() {
 
 run_claude() {
     local prompt="$1"
-    local tmpfile=$(mktemp)
-    trap "rm -f '$tmpfile'" RETURN
-
     claude \
         --print \
         --output-format stream-json \
         --dangerously-skip-permissions \
         "$prompt" \
-    | tee "$tmpfile" \
-    | jq --unbuffered -rj "$STREAM_TEXT"
-
+    | jq --unbuffered -rj "$JQ_STREAM"
     echo ""
 }
 
@@ -71,12 +68,12 @@ run_claude() {
 # ═══════════════════════════════════════════════════════════════════
 
 beads_ready_count() {
-    br ready --json 2>/dev/null | jq -s 'length' 2>/dev/null || echo "0"
+    br ready --json 2>/dev/null | jq 'length' 2>/dev/null || echo "0"
 }
 
 beads_get_next() {
     # Returns JSON of next ready task (highest priority, oldest first)
-    br ready --json 2>/dev/null | jq -s 'sort_by(.priority, .created_at) | .[0] // empty' 2>/dev/null
+    br ready --json 2>/dev/null | jq 'sort_by(.priority, .created_at) | .[0] // empty' 2>/dev/null
 }
 
 beads_claim() {
@@ -95,6 +92,15 @@ beads_complete() {
 beads_sync() {
     br sync >/dev/null 2>&1
     log "Beads synced"
+}
+
+commit_beads() {
+    local msg="$1"
+    beads_sync
+    if ! git diff --quiet .beads/ 2>/dev/null; then
+        git add .beads/
+        git commit -m "$msg" --no-verify 2>/dev/null || true
+    fi
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -126,8 +132,7 @@ while true; do
         echo "  ALL TASKS COMPLETE!"
         echo "==============================================================="
 
-        beads_sync
-        git add .beads/ && git commit -m "beads: final sync" --no-verify 2>/dev/null || true
+        commit_beads "beads: final sync"
         git push 2>/dev/null || true
 
         run_claude "All beads tasks are complete.
@@ -224,13 +229,7 @@ This is an ATOMIC task. Stay focused."
             ;;
         *)
             beads_complete "$task_id" "Completed successfully"
-
-            # Sync and commit beads state
-            beads_sync
-            if ! git diff --quiet .beads/ 2>/dev/null; then
-                git add .beads/
-                git commit -m "beads: complete $task_id" --no-verify 2>/dev/null || true
-            fi
+            commit_beads "beads: complete $task_id"
             ;;
     esac
 
