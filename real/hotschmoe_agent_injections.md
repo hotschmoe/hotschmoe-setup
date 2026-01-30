@@ -133,6 +133,42 @@ Only if all three answers are "yes" should you fix the code.
 **The real success metric**: Does the code further our project's vision and goals?
 <!-- END:testing-philosophy -->
 
+<!-- BEGIN:test-timeouts -->
+## Test Timeout Discipline
+
+**Always wrap test commands with an external timeout.** Many test runners' built-in timeout mechanisms cannot interrupt synchronous blocking code (e.g., infinite loops), and some runners hang after test completion due to process cleanup issues.
+
+### Why Built-in Timeouts Fail
+
+1. **Synchronous blocking code can't be interrupted** - Built-in `--timeout` flags rely on the event loop, which can't execute when blocked by synchronous code like `while (true)`.
+2. **Post-test hangs** - Even after tests complete successfully, some runners hang indefinitely during cleanup. This affects multiple platforms and test frameworks.
+
+### Prevention
+
+Always use an external system timeout wrapper:
+
+```bash
+# Linux/macOS - kill after 60 seconds
+timeout --signal=KILL 60 <your-test-command>
+
+# Windows PowerShell - approximate equivalent
+$proc = Start-Process -PassThru -NoNewWindow <your-test-command>
+if (!$proc.WaitForExit(60000)) { $proc.Kill() }
+
+# Cross-platform script wrapper
+#!/bin/bash
+timeout 60 <your-test-command> || echo "Test killed after timeout"
+```
+
+### Guidelines
+
+- **Default to 60s timeout** for unit tests, adjust based on project needs
+- **Integration tests** may need longer timeouts (5-10 minutes)
+- **CI/CD pipelines** should always have hard timeouts at multiple levels
+- **Document expected test durations** in project-specific sections
+- If tests consistently need more time, investigate why - long tests often indicate design issues
+<!-- END:test-timeouts -->
+
 <!-- BEGIN:code-simplifier -->
 ### Post-Session Code Cleanup
 
