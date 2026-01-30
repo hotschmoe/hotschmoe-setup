@@ -4,7 +4,25 @@
 # Uses beads (br) for atomic task tracking
 set -e
 
-PROJECT_DIR="${1:-.}"
+# ═══════════════════════════════════════════════════════════════════
+#  ARGUMENT PARSING
+# ═══════════════════════════════════════════════════════════════════
+
+AUTO_MODE=false
+PROJECT_DIR="."
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --auto|-a)
+            AUTO_MODE=true
+            shift
+            ;;
+        *)
+            PROJECT_DIR="$1"
+            shift
+            ;;
+    esac
+done
 
 # jq filter for streaming JSON output
 JQ_STREAM='select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text // empty'
@@ -50,18 +68,43 @@ check_requirements() {
         echo "  br create \"Task title\" --type task --description \"...\""
         exit 1
     fi
+
+    # Ensure output directory exists
+    mkdir -p "$PROJECT_DIR/.hot_ralph"
 }
 
 run_claude() {
     local prompt="$1"
+    local label="${2:-claude}"
+    local timestamp=$(date '+%Y%m%d_%H%M%S')
+    local outfile="$PROJECT_DIR/.hot_ralph/${timestamp}_${label}.md"
+
+    log "Output: $outfile"
+
     claude \
         --print \
         --verbose \
         --output-format stream-json \
         --dangerously-skip-permissions \
         "$prompt" \
-    | jq --unbuffered -rj "$JQ_STREAM"
+    | jq --unbuffered -rj "$JQ_STREAM" \
+    | tee "$outfile"
+
     echo ""
+}
+
+prompt_user() {
+    local prompt="$1"
+    local default="${2:-y}"
+
+    if [[ "$AUTO_MODE" == true ]]; then
+        echo "$default"
+        return
+    fi
+
+    read -p "$prompt" -n 1 -r
+    echo ""
+    echo "$REPLY"
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -104,6 +147,14 @@ commit_beads() {
     fi
 }
 
+commit_all() {
+    local msg="$1"
+    if ! git diff --quiet 2>/dev/null || [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+        git add -A
+        git commit -m "$msg" --no-verify 2>/dev/null || true
+    fi
+}
+
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN LOOP
 # ═══════════════════════════════════════════════════════════════════
@@ -122,6 +173,7 @@ fi
 
 log "Starting hot_ralph (beads mode)"
 log "Project: $PROJECT_DIR"
+[[ "$AUTO_MODE" == true ]] && log "AUTO MODE ENABLED"
 
 while true; do
     # Get next ready task
@@ -138,7 +190,7 @@ while true; do
 
         run_claude "All beads tasks are complete.
 Review @VISION.md - does the codebase embody the vision?
-Summarize what was built and identify any remaining gaps."
+Summarize what was built and identify any remaining gaps." "final_review"
 
         exit 0
     fi
@@ -163,10 +215,9 @@ Summarize what was built and identify any remaining gaps."
     echo "$task_desc"
     echo "---------------------------------------------------------------"
 
-    read -p "Execute? [Y/n/s(kip)/v(iew all)/q] " -n 1 -r
-    echo ""
+    reply=$(prompt_user "Execute? [Y/n/s(kip)/v(iew all)/q] " "y")
 
-    case "$REPLY" in
+    case "$reply" in
         [Qq])
             log "Exiting - syncing beads..."
             beads_sync
@@ -194,6 +245,9 @@ Summarize what was built and identify any remaining gaps."
     # Execute the task
     log "Executing task..."
 
+    # Sanitize task_id for filename (replace non-alphanumeric with underscore)
+    safe_task_id=$(echo "$task_id" | tr -c '[:alnum:]' '_')
+
     run_claude "You are implementing a single atomic task.
 
 ## Task
@@ -212,13 +266,12 @@ $task_desc
 3. If validation passes, commit with message based on task title
 4. Report success or failure clearly
 
-This is an ATOMIC task. Stay focused."
+This is an ATOMIC task. Stay focused." "task_${safe_task_id}"
 
     echo ""
-    read -p "Task successful? [Y/n/r(etry)] " -n 1 -r
-    echo ""
+    reply=$(prompt_user "Task successful? [Y/n/r(etry)] " "y")
 
-    case "$REPLY" in
+    case "$reply" in
         [Nn])
             log "Task not complete - keeping in progress"
             # Leave as in_progress for manual handling
@@ -229,6 +282,26 @@ This is an ATOMIC task. Stay focused."
             continue
             ;;
         *)
+            # Run code simplifier before completing
+            log "Running code simplifier..."
+
+            run_claude "Review the code changes made for task: $task_title
+
+Use the code-simplifier:code-simplifier agent approach:
+1. Find recently modified files (check git status and git diff)
+2. Simplify and refine code for clarity, consistency, and maintainability
+3. Preserve all functionality - no behavior changes
+4. Run tests to verify nothing broke
+5. If tests pass, commit any simplification changes
+
+Focus on the code that was just modified. Keep changes minimal and safe." "simplify_${safe_task_id}"
+
+            # Commit any simplification changes
+            if ! git diff --quiet 2>/dev/null; then
+                log "Committing simplification changes..."
+                commit_all "refactor: simplify code from $task_id"
+            fi
+
             beads_complete "$task_id" "Completed successfully"
             commit_beads "beads: complete $task_id"
             ;;
