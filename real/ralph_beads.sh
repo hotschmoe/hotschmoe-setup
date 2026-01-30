@@ -17,7 +17,7 @@ log() {
 }
 
 check_requirements() {
-    for file in SPEC.md VISION.md testing.md; do
+    for file in SPEC.md VISION.md TESTING.md; do
         if [[ ! -f "$PROJECT_DIR/$file" ]]; then
             echo "ERROR: Missing $file"
             exit 1
@@ -140,7 +140,7 @@ bootstrap_beads() {
     log "Bootstrapping: Generating tasks from spec..."
 
     # Generate structured task list
-    local tasks_json=$(run_claude_capture "Read @SPEC.md @VISION.md @testing.md carefully.
+    local tasks_json=$(run_claude_capture "Read @SPEC.md @VISION.md @TESTING.md carefully.
 
 Break this project into atomic tasks. Output as JSON array:
 
@@ -322,7 +322,7 @@ $task_desc
 ## Context Files
 - @SPEC.md - Project specification
 - @VISION.md - Project vision
-- @testing.md - Testing requirements
+- @TESTING.md - Testing requirements
 
 ## Instructions
 1. Implement ONLY what this task specifies - no more, no less
