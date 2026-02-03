@@ -1,0 +1,1 @@
+```claude plugin install code-simplifier```
