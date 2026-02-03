@@ -1,21 +1,91 @@
-Part 1: Repository Settings (GitHub UI)
-To protect master and ensure only approved, passing PRs can be merged:
-Go to your GitHub repository > Settings > Branches.
-Click Add branch protection rule.
-Branch name pattern: master (or main if that is your default).
-Check Require a pull request before merging.
-Optional: Check "Require approvals" if you have collaborators. If you are the only person working on this, leave "Require approvals" unchecked. GitHub prevents you from approving your own PRs, so checking this on a solo repo will block you from merging. As the owner, your act of merging is the acceptance.
-Check Require status checks to pass before merging.
-In the search box that appears, search for build-and-test (this is the job name we will define in the workflow below).
-Note: This option might not appear until you have pushed the workflow file once. You can come back and check this after setting up Part 2.
-Check Do not allow bypassing the above settings.
-This ensures even you (the admin) must use a PR and pass tests.
-Click Create.
+# Zig Project Setup Guide
 
-How to use this workflow
-Development: Create a branch (e.g., feature/login), write code, and push.
-Pull Request: Open a PR to master. The CI workflow will run automatically. You will see a green checkmark if zig build test passes.
-Merge: If tests pass, you merge the PR.
-Release:
-If you did not change the version in build.zig.zon, the Release workflow runs, sees the tag exists, and does nothing.
-If you did change the version (e.g., 0.1.0 -> 0.2.0) in the PR, the Release workflow will automatically tag the commit v0.2.0 and create a GitHub Release.
+Quick setup for the automated CI/CD workflow.
+
+---
+
+## Step 1: GitHub Repository Settings
+
+Configure branch protection to enforce the PR workflow.
+
+**Path:** Repository > `Settings` > `Branches` > `Add branch protection rule`
+
+### Required Settings
+
+| Setting                                    | Value            |
+| :----------------------------------------- | :--------------- |
+| Branch name pattern                        | `master`         |
+| Require a pull request before merging      | Checked          |
+| Require status checks to pass before merge | Checked          |
+| Status checks to require                   | `build-and-test` |
+| Do not allow bypassing the above settings  | Checked          |
+
+### Optional Settings
+
+| Setting            | When to Use                                      |
+| :----------------- | :----------------------------------------------- |
+| Require approvals  | Multi-person teams (skip for solo repos)         |
+
+**Note:** Status checks won't appear in the search until you've pushed the workflow file at least once.
+
+---
+
+## Step 2: Add Workflow Files
+
+Copy the appropriate YAML from `ci_cd_flow.md` to your repository:
+
+```
+your-repo/
+  .github/
+    workflows/
+      ci.yml       # From ci_cd_flow.md Section 1
+      release.yml  # From ci_cd_flow.md Section 2
+  build.zig.zon    # Must contain .version = "X.Y.Z"
+  build.zig
+  src/
+```
+
+---
+
+## Step 3: Verify Setup
+
+1. Create a test branch: `git checkout -b test/ci-check`
+2. Make a small change and bump version in `build.zig.zon`
+3. Push and open a PR to `master`
+4. Verify CI runs and passes
+5. Merge the PR
+6. Check that a GitHub Release was created
+
+---
+
+## Daily Workflow
+
+```
+1. Create branch    git checkout -b feature/thing
+2. Make changes     # code, code, code
+3. Bump version     # edit build.zig.zon
+4. Commit & push    git commit -am "feat: thing" && git push -u origin HEAD
+5. Open PR          # GitHub UI
+6. Wait for CI      # Must pass version check + tests
+7. Merge            # Release auto-created
+```
+
+---
+
+## Troubleshooting
+
+### CI fails with "Version not bumped"
+
+You forgot to update `.version` in `build.zig.zon`. Every PR must bump the version.
+
+### Release fails with "Tag already exists"
+
+The version in `build.zig.zon` matches an existing release. Bump to a new version.
+
+### Status check not appearing
+
+Push the workflow files first, then return to branch protection settings.
+
+### Tests pass locally but fail in CI
+
+Check that your Zig version matches the one in the workflow (`version: 0.15.2`).
