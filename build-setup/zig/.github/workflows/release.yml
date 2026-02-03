@@ -1,0 +1,46 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [ "master" ]
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Parse version from build.zig.zon
+      # This sed command looks for: .version = "X.Y.Z" and extracts X.Y.Z
+      - name: Get Version from build.zig.zon
+        id: get_version
+        run: |
+          VERSION=$(sed -n 's/.*\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          echo "Detected version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # 2. Check if a git tag for this version already exists
+      - name: Check if Tag Exists
+        id: check_tag
+        run: |
+          TAG_NAME="v${{ steps.get_version.outputs.version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG_NAME already exists! You likely forgot to bump the version in build.zig.zon."
+            exit 1
+          fi
+          echo "Tag $TAG_NAME does not exist. Creating release."
+
+      # 3. Create Release (Only if tag didn't exist)
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
