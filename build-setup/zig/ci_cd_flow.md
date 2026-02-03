@@ -176,7 +176,7 @@ jobs:
           version: 0.15.2
       
       - name: Build
-        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseFast
 
       # Rename binary to include target name (e.g., myapp-x86_64-linux)
       - name: Prepare Artifact
