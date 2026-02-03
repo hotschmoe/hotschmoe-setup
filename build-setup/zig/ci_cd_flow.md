@@ -31,9 +31,24 @@ This project uses a fully automated CI/CD pipeline where releases are driven by 
 
 Runs on every Pull Request to `master`. Choose the option that fits your needs.
 
+### Comparison of Options
+
+| Feature | Option A (Basic) | Option B (Multi-Platform) | Option C (Comprehensive) |
+|---------|------------------|---------------------------|--------------------------|
+| Version bump check | ✓ | ✓ | ✓ |
+| Build verification | ✓ | ✓ | ✓ |
+| Unit tests | ✓ | ✓ | ✓ |
+| Multi-platform | - | ✓ (3 platforms) | ✓ (3 platforms) |
+| Multi-optimization | - | - | ✓ (4 levels) |
+| Fuzz testing | - | - | ✓ |
+| Format checking | - | - | ✓ |
+| Package validation | - | - | ✓ |
+| **Use Case** | Prototypes | Cross-platform apps | Production libraries |
+| **CI Time** | ~2 min | ~5 min | ~10 min |
+
 ### Option A: Basic CI (Single Platform)
 
-Use this for libraries or when cross-platform testing isn't critical.
+Use this for quick prototypes or when comprehensive testing isn't needed yet.
 
 ```yaml
 name: CI
@@ -77,7 +92,7 @@ jobs:
 
 ### Option B: Multi-Platform CI
 
-Use this for applications where you need to verify builds across Linux, macOS, and Windows.
+Use this when you need basic cross-platform verification but not full optimization testing.
 
 ```yaml
 name: CI
@@ -135,6 +150,219 @@ jobs:
       - name: Test
         if: matrix.target == 'x86_64-linux'
         run: zig build test
+```
+
+### Option C: Comprehensive Testing (Recommended)
+
+Use this for production libraries and applications. Provides thorough validation across platforms, optimization levels, formatting, and package integration.
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Version Bump
+        run: |
+          PR_VERSION=$(sed -n 's/.*\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          git fetch origin master
+          MASTER_VERSION=$(git show origin/master:build.zig.zon | sed -n 's/.*\.version = "\([^"]*\)".*/\1/p')
+          echo "PR version: $PR_VERSION"
+          echo "Master version: $MASTER_VERSION"
+          if [ "$PR_VERSION" = "$MASTER_VERSION" ]; then
+            echo "::error::Version not bumped! Update .version in build.zig.zon"
+            exit 1
+          fi
+          echo "Version bump verified: $MASTER_VERSION -> $PR_VERSION"
+
+  test:
+    needs: version-check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        optimize: [Debug, ReleaseSafe]
+        include:
+          - os: ubuntu-latest
+            optimize: ReleaseFast
+          - os: ubuntu-latest
+            optimize: ReleaseSmall
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Build
+        run: zig build -Doptimize=${{ matrix.optimize }}
+
+      - name: Test
+        run: zig build test -Doptimize=${{ matrix.optimize }}
+
+  fuzz:
+    needs: version-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Fuzz Test
+        timeout-minutes: 1
+        run: zig build fuzz
+
+  format:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Check Format
+        run: zig fmt --check src/
+
+  package:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Create Test Consumer
+        run: |
+          mkdir test-consumer
+          cd test-consumer
+          cat > build.zig.zon << 'EOF'
+          .{
+              .name = "test-consumer",
+              .version = "0.0.0",
+              .dependencies = .{
+                  .package = .{ .path = "../source" },
+              },
+              .paths = .{""},
+          }
+          EOF
+
+          cat > build.zig << 'EOF'
+          const std = @import("std");
+          pub fn build(b: *std.Build) void {
+              const target = b.standardTargetOptions(.{});
+              const optimize = b.standardOptimizeOption(.{});
+              const package = b.dependency("package", .{
+                  .target = target,
+                  .optimize = optimize,
+              });
+              _ = package;
+          }
+          EOF
+
+      - name: Build Consumer
+        working-directory: test-consumer
+        run: zig build
+```
+
+**What this provides:**
+- Multi-platform testing (Ubuntu, macOS, Windows)
+- All optimization levels (Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
+- Fuzz testing with timeout
+- Format checking enforcement
+- Package validation (ensures library can be consumed as dependency)
+
+**Requirements for Option C:**
+
+1. **Fuzz Testing**: Add a fuzz step to your `build.zig`
+   ```zig
+   const fuzz_step = b.step("fuzz", "Run fuzz tests");
+   const fuzz_exe = b.addExecutable(.{
+       .name = "fuzz",
+       .root_source_file = b.path("src/fuzz.zig"),
+       .target = target,
+       .optimize = optimize,
+   });
+   const fuzz_run = b.addRunArtifact(fuzz_exe);
+   fuzz_step.dependOn(&fuzz_run.step);
+   ```
+   Create `src/fuzz.zig` with your fuzz tests, or use a simple stub if not needed yet:
+   ```zig
+   pub fn main() !void {}
+   ```
+
+2. **Format Checking**: Ensure all source files are formatted
+   ```bash
+   zig fmt src/
+   ```
+
+3. **Package Exports**: If building a library, ensure your root file exposes the public API properly
+   ```zig
+   // In your main library file
+   pub const MyType = @import("types.zig").MyType;
+   pub const myFunction = @import("functions.zig").myFunction;
+   ```
+
+### Optional Enhancements
+
+Add these jobs to Option C for even more thorough validation:
+
+**Documentation Generation:**
+```yaml
+  docs:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Generate Docs
+        run: zig build-lib src/main.zig -femit-docs -fno-emit-bin
+```
+
+**Conformance Testing** (for projects with spec compliance):
+```yaml
+  conformance:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive  # If spec is a submodule
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Conformance Tests
+        run: zig build test-conformance
 ```
 
 ---
@@ -285,15 +513,34 @@ Configure **Branch Protection Rules** for `master` to enforce the workflow.
 
 **Path:** `Settings` > `Branches` > `Add branch protection rule`
 
+### Base Settings (All Options)
+
 | Setting                          | Value            | Purpose                              |
 | :------------------------------- | :--------------- | :----------------------------------- |
 | Branch name pattern              | `master`         | Target branch                        |
 | Require a pull request           | Checked          | Ensures CI runs before merge         |
 | Require status checks            | Checked          | Prevents broken code on master       |
-| Status checks to require         | `build-and-test` | Job name from `ci.yml`               |
 | Do not allow bypassing           | Checked          | Enforces rules for admins too        |
 
-**Note:** The status check option may not appear until you've pushed the workflow file once.
+### Required Status Checks by CI Option
+
+**Option A (Basic):**
+- `build-and-test`
+
+**Option B (Multi-Platform):**
+- `version-check`
+- `build-and-test`
+
+**Option C (Comprehensive) - Recommended:**
+- `version-check`
+- `test`
+- `format`
+- `package`
+
+**Note:**
+- The `fuzz` job is not required (has `continue-on-error: true`)
+- Status checks won't appear until you've pushed the workflow file once
+- You can add all checks or just critical ones depending on your team's workflow
 
 ---
 
@@ -308,10 +555,15 @@ Configure **Branch Protection Rules** for `master` to enforce the workflow.
 4. git commit -am "feat: my change"
 5. git push -u origin feature/my-change
 6. # Open PR on GitHub
-7. # Wait for CI (version check + build + test)
+7. # Wait for CI (see below for what runs)
 8. # Merge when green
 9. # Release auto-created!
 ```
+
+**What runs in CI depends on your chosen option:**
+- **Option A:** Version check + build + test
+- **Option B:** Version check + multi-platform build + test
+- **Option C:** Version check + multi-platform tests + all optimization levels + fuzz + format + package validation
 
 ### Version Bump Rules
 
@@ -327,3 +579,129 @@ Configure **Branch Protection Rules** for `master` to enforce the workflow.
 | PR with version bump      | PASS (if tests ok)| N/A                   |
 | Merge to master           | N/A               | Creates vX.Y.Z release|
 | Push same version again   | N/A               | FAIL (tag exists)     |
+
+---
+
+## Appendix: Conformance Testing
+
+Some projects implement specifications or standards and need to validate against official conformance test suites. This is common for:
+
+- Protocol implementations (HTTP, WebSocket, etc.)
+- File format parsers (JSON, TOML, etc.)
+- Language implementations (interpreters, compilers)
+- Specification-driven libraries
+
+### Example: toon_zig
+
+The `toon_zig` project implements the TOML spec and validates against the official TOML conformance tests using a git submodule.
+
+**Repository Structure:**
+```
+toon_zig/
+  .gitmodules              # Defines conformance test submodule
+  conformance/
+    toml-test/             # Git submodule with official tests
+  src/
+  build.zig                # Includes test-conformance step
+```
+
+**CI Workflow Addition:**
+
+```yaml
+conformance:
+  needs: version-check
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive  # Critical: checkout conformance tests
+
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v1
+      with:
+        version: 0.15.2
+
+    - name: Run Conformance Tests
+      run: zig build test-conformance
+```
+
+**build.zig Setup:**
+
+```zig
+const conformance_tests = b.step("test-conformance", "Run conformance tests");
+
+const conformance_exe = b.addExecutable(.{
+    .name = "conformance",
+    .root_source_file = b.path("src/conformance_runner.zig"),
+    .target = target,
+    .optimize = optimize,
+});
+
+const conformance_run = b.addRunArtifact(conformance_exe);
+conformance_run.addArg("--test-dir");
+conformance_run.addArg("conformance/toml-test/tests");
+conformance_tests.dependOn(&conformance_run.step);
+```
+
+### Setting Up Conformance Testing
+
+1. **Add the conformance test suite as a submodule:**
+   ```bash
+   git submodule add https://github.com/org/official-tests conformance/official-tests
+   git commit -m "Add conformance test suite"
+   ```
+
+2. **Update `.gitmodules`:**
+   ```ini
+   [submodule "conformance/official-tests"]
+       path = conformance/official-tests
+       url = https://github.com/org/official-tests
+   ```
+
+3. **Add conformance step to `build.zig`** (see example above)
+
+4. **Add conformance job to CI** (see workflow example above)
+
+5. **Add to branch protection** (optional):
+   - If conformance is critical, add `conformance` to required status checks
+   - If tests are flaky or optional, use `continue-on-error: true`
+
+### When to Make Conformance Required
+
+**Required (blocks merge):**
+- Stable specifications with reliable test suites
+- Projects where spec compliance is the primary value proposition
+- When all conformance tests consistently pass
+
+**Optional (informational):**
+- Incomplete spec implementations (partial compliance expected)
+- Flaky or environment-dependent tests
+- Experimental features not yet in official spec
+
+**Example with optional conformance:**
+```yaml
+conformance:
+  needs: version-check
+  runs-on: ubuntu-latest
+  continue-on-error: true  # Don't block merge on conformance failures
+  steps:
+    # ... same as above
+```
+
+### Best Practices
+
+1. **Pin conformance test versions** - Use specific commits/tags in submodules to prevent surprise breakage
+2. **Document compliance level** - Note which parts of the spec are implemented in README
+3. **Separate unit and conformance** - Keep fast unit tests separate from slower conformance suites
+4. **Update conformance regularly** - Periodically update submodule to catch new test cases
+
+### Updating Conformance Tests
+
+```bash
+# Update to latest conformance tests
+cd conformance/official-tests
+git pull origin main
+cd ../..
+git add conformance/official-tests
+git commit -m "Update conformance tests to latest"
+```
