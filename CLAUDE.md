@@ -113,6 +113,8 @@ Only if all three answers are "yes" should you fix the code.
 - A specification to code against
 
 **The real success metric**: Does the code further our project's vision and goals?
+
+**Don't test the type system**: When writing tests, do not add cases for invariants or errors already enforced by the static type system (e.g., type mismatches, missing required arguments, nullability violations, return type correctness, enum exhaustiveness). The type checker handles these at compile time. Test solely runtime behaviors, business rules, algorithmic logic, and edge cases using only valid typed inputs.
 <!-- END:testing-philosophy -->
 
 <!-- BEGIN:footer -->
