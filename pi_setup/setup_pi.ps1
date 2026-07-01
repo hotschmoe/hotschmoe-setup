@@ -274,6 +274,14 @@ foreach ($m in $models) {
     Write-Host "    * $($m.id)" -ForegroundColor Cyan
 }
 
+# Confirm before writing
+Write-Host ""
+$confirm = Read-Host "  Write config for provider '$providerName' at $baseUrl? [Y/n]"
+if ($confirm -match '^(n|no)$') {
+    Write-Host "  Aborted. No files written." -ForegroundColor Yellow
+    exit 0
+}
+
 # ── Step 4: Write config ────────────────────────────────────
 Write-Host ""
 Write-Host "[4/5] Writing pi configuration..." -ForegroundColor Green
@@ -286,6 +294,15 @@ if (-not (Test-Path $piDir)) {
 
 $authPath   = Join-Path $piDir "auth.json"
 $modelsPath = Join-Path $piDir "models.json"
+
+# Back up any existing config before overwriting
+$ts = Get-Date -Format "yyyyMMdd-HHmmss"
+foreach ($f in @($authPath, $modelsPath)) {
+    if (Test-Path $f) {
+        Copy-Item $f "$f.bak-$ts" -Force
+        Write-Host "  backed up $(Split-Path $f -Leaf) -> $(Split-Path $f -Leaf).bak-$ts" -ForegroundColor DarkGray
+    }
+}
 
 $authJson   = Build-AuthJson   -Provider $providerName -ApiKey $apiKey
 $modelsJson = Build-ModelsJson -Provider $providerName -BaseUrl $baseUrl -ApiKey $apiKey -Models $models
@@ -302,11 +319,11 @@ Write-Host "[5/5] Verifying..." -ForegroundColor Green
 
 if (Get-Command pi -ErrorAction SilentlyContinue) {
     Write-Host ""
-    & pi --version
+    & pi --list-models
 }
 else {
     Write-Host "  'pi' not found in PATH." -ForegroundColor Yellow
-    Write-Host "  Restart your terminal, then run:  pi" -ForegroundColor Yellow
+    Write-Host "  Restart your terminal, then run:  pi --list-models" -ForegroundColor Yellow
 }
 
 # ── Done ─────────────────────────────────────────────────────

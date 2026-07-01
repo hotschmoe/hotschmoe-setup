@@ -45,6 +45,29 @@ require_curl() {
     fi
 }
 
+# Prompt helpers that read from the terminal even when the script itself
+# is piped in via `curl ... | bash` (stdin is the pipe in that case).
+TTY="/dev/tty"
+prompt_read() {   # prompt_read VAR "message"
+    local __var="$1" __msg="$2" __in
+    if [ -r "$TTY" ]; then
+        read -r -p "$__msg" __in < "$TTY"
+    else
+        read -r -p "$__msg" __in
+    fi
+    printf -v "$__var" '%s' "$__in"
+}
+prompt_secret() { # prompt_secret VAR "message"
+    local __var="$1" __msg="$2" __in
+    if [ -r "$TTY" ]; then
+        read -r -s -p "$__msg" __in < "$TTY"
+    else
+        read -r -s -p "$__msg" __in
+    fi
+    echo ""
+    printf -v "$__var" '%s' "$__in"
+}
+
 # Trim whitespace and strip one layer of surrounding single/double quotes.
 sanitize() {
     local s="$1"
@@ -233,7 +256,7 @@ install_pi
 echo ""
 info "[2/5] Server configuration..."
 
-read -r -p "  Server URL [${DEFAULT_URL}]: " RAW_URL
+prompt_read RAW_URL "  Server URL [${DEFAULT_URL}]: "
 RAW_URL="${RAW_URL:-$DEFAULT_URL}"
 BASE_URL="$(normalize_url "$RAW_URL")"
 PROVIDER_NAME="$(provider_from_url "$BASE_URL")"
@@ -243,8 +266,7 @@ if [ -z "$PROVIDER_NAME" ]; then
     exit 1
 fi
 
-read -r -s -p "  API key: " RAW_KEY
-echo ""
+prompt_secret RAW_KEY "  API key: "
 API_KEY="$(sanitize "$RAW_KEY")"
 
 if [ -z "$API_KEY" ]; then
@@ -278,6 +300,13 @@ fi
 info "  Discovered ${#MODEL_IDS[@]} model(s):"
 for mid in "${MODEL_IDS[@]}"; do accent "$mid"; done
 
+# Confirm before writing.
+echo ""
+prompt_read CONFIRM "  Write config for provider '${PROVIDER_NAME}' at ${BASE_URL}? [Y/n]: "
+case "${CONFIRM:-Y}" in
+    [nN]|[nN][oO]) warn "  Aborted. No files written."; exit 0 ;;
+esac
+
 # ── Step 4: Write config ────────────────────────────────────
 echo ""
 info "[4/5] Writing pi configuration..."
@@ -286,18 +315,32 @@ mkdir -p "$PI_CONFIG_DIR"
 auth_file="${PI_CONFIG_DIR}/auth.json"
 models_file="${PI_CONFIG_DIR}/models.json"
 
+# Back up any existing config before overwriting.
+ts="$(date +%Y%m%d-%H%M%S)"
+for f in "$auth_file" "$models_file"; do
+    if [ -f "$f" ]; then
+        cp "$f" "${f}.bak-${ts}"
+        detail "backed up $(basename "$f") -> $(basename "$f").bak-${ts}"
+    fi
+done
+
 build_auth_json "$PROVIDER_NAME" "$API_KEY" > "$auth_file"
-detail "$auth_file"
 build_models_json "$PROVIDER_NAME" "$BASE_URL" "$API_KEY" "${MODEL_IDS[@]}" > "$models_file"
+
+# Lock down files containing the API key.
+chmod 600 "$auth_file" "$models_file" 2>/dev/null || true
+
+detail "$auth_file"
 detail "$models_file"
 
 # ── Step 5: Verify ──────────────────────────────────────────
 echo ""
 info "[5/5] Verifying..."
 if command -v pi &>/dev/null; then
-    pi --version || true
+    echo ""
+    pi --list-models || true
 else
-    warn "  'pi' not found in PATH. Restart your terminal, then run:  pi"
+    warn "  'pi' not found in PATH. Restart your terminal, then run:  pi --list-models"
 fi
 
 # ── Done ─────────────────────────────────────────────────────

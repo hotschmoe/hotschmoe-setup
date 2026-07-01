@@ -12,7 +12,11 @@ Each script:
    from the host** (`llm.hotschmoe.com` → `hotschmoe`).
 3. Prompts for an **API key** (surrounding quotes are stripped automatically).
 4. Discovers models from `<baseUrl>/models`.
-5. Writes `~/.pi/agent/auth.json` and `~/.pi/agent/models.json`.
+5. Shows what it found and asks for confirmation, backs up any existing
+   config, then writes `~/.pi/agent/auth.json` and `~/.pi/agent/models.json`
+   (the bash version also `chmod 600`s them since they hold your API key).
+
+Verify at the end with `pi --list-models`.
 
 ## Quick start
 
