@@ -63,6 +63,15 @@ prompt_secret() { # prompt_secret VAR "message"
     echo ""
     printf -v "$__var" '%s' "$__in"
 }
+# prompt_yes VAR "message"  -> sets VAR to 1 (yes, default) or 0 (no)
+prompt_yes() {
+    local __var="$1" __msg="$2" __in
+    prompt_read __in "$__msg"
+    case "${__in:-Y}" in
+        [nN]|[nN][oO]) printf -v "$__var" '%s' 0 ;;
+        *)            printf -v "$__var" '%s' 1 ;;
+    esac
+}
 
 # Trim whitespace and strip one layer of surrounding single/double quotes.
 sanitize() {
@@ -159,21 +168,21 @@ for m in json.load(sys.stdin).get('data',[]):
 }
 
 build_models_json() {
-    local provider="$1" base_url="$2" api_key="$3" desired_max="$4"
-    shift 4
-    local pairs=("$@")   # each entry: "id<TAB>max_model_len"
+    local provider="$1" base_url="$2" api_key="$3"
+    shift 3
+    local rows=("$@")   # each: "id<TAB>ctx<TAB>maxt<TAB>vision(1/0)<TAB>thinking(1/0)"
     local models_block="" first=true
 
-    for pair in "${pairs[@]}"; do
-        local mid="${pair%%$'\t'*}"
-        local ctx="${pair#*$'\t'}"
+    for row in "${rows[@]}"; do
+        local IFS=$'\t'
+        read -r mid ctx maxt vision thinking <<< "$row"
+        unset IFS
         [ -z "$ctx" ] && ctx=0
 
-        # Clamp requested output to the model's window when known.
-        local maxt="$desired_max"
-        if [ "$ctx" -gt 0 ] && [ "$desired_max" -gt "$ctx" ]; then
-            maxt="$ctx"
-        fi
+        local input_arr='["text"]'
+        [ "$vision" = "1" ] && input_arr='["text", "image"]'
+        local reasoning="false"
+        [ "$thinking" = "1" ] && reasoning="true"
 
         if [ "$first" = true ]; then first=false; else models_block+=","; fi
         models_block+="
@@ -182,7 +191,8 @@ build_models_json() {
           \"name\": \"${mid} (${provider} SGLang)\",
           \"contextWindow\": ${ctx},
           \"maxTokens\": ${maxt},
-          \"input\": [\"text\"]
+          \"reasoning\": ${reasoning},
+          \"input\": ${input_arr}
         }"
     done
 
@@ -193,6 +203,10 @@ build_models_json() {
       "baseUrl": "${base_url}",
       "api": "openai-completions",
       "apiKey": "${api_key}",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "thinkingFormat": "qwen-chat-template"
+      },
       "models": [${models_block}
       ]
     }
@@ -333,6 +347,28 @@ for pair in "${MODEL_PAIRS[@]}"; do
     fi
 done
 
+# Per-model capabilities. The server doesn't advertise vision/thinking, so ask.
+# Build rows: "id<TAB>ctx<TAB>maxt<TAB>vision<TAB>thinking".
+echo ""
+info "  Model capabilities (defaults to yes):"
+MODEL_ROWS=()
+for pair in "${MODEL_PAIRS[@]}"; do
+    mid="${pair%%$'\t'*}"; ctx="${pair#*$'\t'}"
+    [ -z "$ctx" ] && ctx=0
+
+    # Clamp requested output to the model's window when known.
+    maxt="$MAX_TOKENS"
+    if [ "$ctx" -gt 0 ] && [ "$MAX_TOKENS" -gt "$ctx" ]; then
+        maxt="$ctx"
+    fi
+
+    echo ""
+    detail "${mid}"
+    prompt_yes VIS  "    Vision (image input)? [Y/n]: "
+    prompt_yes THK  "    Thinking (reasoning)?  [Y/n]: "
+    MODEL_ROWS+=("${mid}"$'\t'"${ctx}"$'\t'"${maxt}"$'\t'"${VIS}"$'\t'"${THK}")
+done
+
 # Confirm before writing.
 echo ""
 prompt_read CONFIRM "  Write config for provider '${PROVIDER_NAME}' at ${BASE_URL}? [Y/n]: "
@@ -358,7 +394,7 @@ for f in "$auth_file" "$models_file"; do
 done
 
 build_auth_json "$PROVIDER_NAME" "$API_KEY" > "$auth_file"
-build_models_json "$PROVIDER_NAME" "$BASE_URL" "$API_KEY" "$MAX_TOKENS" "${MODEL_PAIRS[@]}" > "$models_file"
+build_models_json "$PROVIDER_NAME" "$BASE_URL" "$API_KEY" "${MODEL_ROWS[@]}" > "$models_file"
 
 # Lock down files containing the API key.
 chmod 600 "$auth_file" "$models_file" 2>/dev/null || true

@@ -124,6 +124,7 @@ function Get-Models {
                     name          = "$($m.id) ($Provider SGLang)"
                     contextWindow = $ctx
                     maxTokens     = $maxt
+                    reasoning     = $true
                     input         = @("text")
                 }
             }
@@ -146,12 +147,14 @@ function Build-ModelsJson {
     $modelsJson = @()
     foreach ($m in $Models) {
         $inputArr = ($m.input | ForEach-Object { "`"$_`"" }) -join ", "
+        $reasoning = if ($m.reasoning) { "true" } else { "false" }
         $modelsJson += @"
         {
           "id": "$($m.id)",
           "name": "$($m.name)",
           "contextWindow": $($m.contextWindow),
           "maxTokens": $($m.maxTokens),
+          "reasoning": $reasoning,
           "input": [$inputArr]
         }
 "@
@@ -165,6 +168,10 @@ function Build-ModelsJson {
       "baseUrl": "$BaseUrl",
       "api": "openai-completions",
       "apiKey": "$ApiKey",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "thinkingFormat": "qwen-chat-template"
+      },
       "models": [
 $modelsBlock
       ]
@@ -310,6 +317,18 @@ foreach ($m in $models) {
     else {
         Write-Host "    * $($m.id)  (ctx unknown)" -ForegroundColor Cyan
     }
+}
+
+# Per-model capabilities. The server doesn't advertise vision/thinking, so ask.
+Write-Host ""
+Write-Host "  Model capabilities (defaults to yes):" -ForegroundColor Green
+foreach ($m in $models) {
+    Write-Host ""
+    Write-Host "  $($m.id)" -ForegroundColor DarkGray
+    $visAns = Read-Host "    Vision (image input)? [Y/n]"
+    $thkAns = Read-Host "    Thinking (reasoning)?  [Y/n]"
+    if ($visAns -match '^(n|no)$') { $m.input = @("text") } else { $m.input = @("text", "image") }
+    if ($thkAns -match '^(n|no)$') { $m.reasoning = $false } else { $m.reasoning = $true }
 }
 
 # Confirm before writing
