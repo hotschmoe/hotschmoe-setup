@@ -18,12 +18,8 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────
-#  Defaults (all overridable at the prompt)
+#  Config
 # ─────────────────────────────────────────────────────────────
-
-DEFAULT_URL="llm.hotschmoe.com"
-DEFAULT_CTX_WINDOW=131072
-DEFAULT_MAX_TOKENS=64000
 
 PI_PKG="@earendil-works/pi-coding-agent"
 PI_CONFIG_DIR="${HOME}/.pi/agent"
@@ -94,9 +90,9 @@ normalize_url() {
     local u
     u="$(sanitize "$1")"
 
-    # Add scheme if missing. Bare hostnames default to http://.
+    # Add scheme if missing. Bare hostnames default to https://.
     if [[ "$u" != http://* && "$u" != https://* ]]; then
-        u="http://${u}"
+        u="https://${u}"
     fi
 
     # Drop trailing slash(es)
@@ -136,42 +132,56 @@ provider_from_url() {
     fi
 }
 
-# Extract model IDs from /v1/models JSON. Tries jq -> python3 -> python.
-parse_model_ids() {
+# Extract "id<TAB>max_model_len" per model from /v1/models JSON.
+# max_model_len falls back to 0 when the server omits it.
+# Tries jq -> python3 -> python.
+parse_models() {
     local json="$1"
 
     if command -v jq &>/dev/null; then
-        echo "$json" | jq -r '.data[].id' 2>/dev/null && return 0
+        echo "$json" | jq -r '.data[] | "\(.id)\t\(.max_model_len // 0)"' 2>/dev/null && return 0
     fi
     if command -v python3 &>/dev/null; then
         echo "$json" | python3 -c "
 import json,sys
-for m in json.load(sys.stdin).get('data',[]): print(m['id'])
+for m in json.load(sys.stdin).get('data',[]):
+    print('%s\t%s' % (m['id'], m.get('max_model_len', 0)))
 " 2>/dev/null && return 0
     fi
     if command -v python &>/dev/null; then
         echo "$json" | python -c "
 import json,sys
-for m in json.load(sys.stdin).get('data',[]): print(m['id'])
+for m in json.load(sys.stdin).get('data',[]):
+    print('%s\t%s' % (m['id'], m.get('max_model_len', 0)))
 " 2>/dev/null && return 0
     fi
     return 1
 }
 
 build_models_json() {
-    local provider="$1" base_url="$2" api_key="$3"
-    shift 3
-    local model_ids=("$@")
+    local provider="$1" base_url="$2" api_key="$3" desired_max="$4"
+    shift 4
+    local pairs=("$@")   # each entry: "id<TAB>max_model_len"
     local models_block="" first=true
 
-    for mid in "${model_ids[@]}"; do
+    for pair in "${pairs[@]}"; do
+        local mid="${pair%%$'\t'*}"
+        local ctx="${pair#*$'\t'}"
+        [ -z "$ctx" ] && ctx=0
+
+        # Clamp requested output to the model's window when known.
+        local maxt="$desired_max"
+        if [ "$ctx" -gt 0 ] && [ "$desired_max" -gt "$ctx" ]; then
+            maxt="$ctx"
+        fi
+
         if [ "$first" = true ]; then first=false; else models_block+=","; fi
         models_block+="
         {
           \"id\": \"${mid}\",
           \"name\": \"${mid} (${provider} SGLang)\",
-          \"contextWindow\": ${DEFAULT_CTX_WINDOW},
-          \"maxTokens\": ${DEFAULT_MAX_TOKENS},
+          \"contextWindow\": ${ctx},
+          \"maxTokens\": ${maxt},
           \"input\": [\"text\"]
         }"
     done
@@ -256,8 +266,12 @@ install_pi
 echo ""
 info "[2/5] Server configuration..."
 
-prompt_read RAW_URL "  Server URL [${DEFAULT_URL}]: "
-RAW_URL="${RAW_URL:-$DEFAULT_URL}"
+prompt_read RAW_URL "  Server URL: "
+RAW_URL="$(sanitize "$RAW_URL")"
+if [ -z "$RAW_URL" ]; then
+    err "  Server URL cannot be empty."
+    exit 1
+fi
 BASE_URL="$(normalize_url "$RAW_URL")"
 PROVIDER_NAME="$(provider_from_url "$BASE_URL")"
 
@@ -274,31 +288,50 @@ if [ -z "$API_KEY" ]; then
     exit 1
 fi
 
+# Context window is read from each model's max_model_len at discovery.
+# Max output is prompted, defaulting to 32k, clamped per-model later.
+DEFAULT_MAX=32768
+prompt_read RAW_MAX "  Max output tokens [${DEFAULT_MAX}]: "
+MAX_TOKENS="$(sanitize "$RAW_MAX")"
+MAX_TOKENS="${MAX_TOKENS:-$DEFAULT_MAX}"
+if ! [[ "$MAX_TOKENS" =~ ^[0-9]+$ ]]; then
+    err "  Max output tokens must be a positive integer."
+    exit 1
+fi
+
 detail "Provider : ${PROVIDER_NAME}"
 detail "URL      : ${BASE_URL}"
 detail "Key      : ${API_KEY:0:12}..."
+detail "Max out  : ${MAX_TOKENS} (context read from server per model)"
 
 # ── Step 3: Discover models ─────────────────────────────────
 echo ""
 info "[3/5] Discovering models from ${BASE_URL} ..."
 
-MODEL_IDS=()
-response=$(curl -s --connect-timeout 10 \
+MODEL_PAIRS=()
+response=$(curl -s -L --http1.1 --connect-timeout 10 \
     -H "Authorization: Bearer ${API_KEY}" \
     "${BASE_URL}/models" 2>/dev/null) || true
 
 if [ -n "$response" ]; then
-    mapfile -t MODEL_IDS < <(parse_model_ids "$response") || true
+    mapfile -t MODEL_PAIRS < <(parse_models "$response") || true
 fi
 
-if [ ${#MODEL_IDS[@]} -eq 0 ]; then
+if [ ${#MODEL_PAIRS[@]} -eq 0 ]; then
     err "  Could not discover models from ${BASE_URL}"
     err "  Make sure the server is running and the URL/API key are correct."
     exit 1
 fi
 
-info "  Discovered ${#MODEL_IDS[@]} model(s):"
-for mid in "${MODEL_IDS[@]}"; do accent "$mid"; done
+info "  Discovered ${#MODEL_PAIRS[@]} model(s):"
+for pair in "${MODEL_PAIRS[@]}"; do
+    mid="${pair%%$'\t'*}"; ctx="${pair#*$'\t'}"
+    if [ -n "$ctx" ] && [ "$ctx" != "0" ]; then
+        accent "$mid  (ctx ${ctx})"
+    else
+        accent "$mid  (ctx unknown)"
+    fi
+done
 
 # Confirm before writing.
 echo ""
@@ -325,7 +358,7 @@ for f in "$auth_file" "$models_file"; do
 done
 
 build_auth_json "$PROVIDER_NAME" "$API_KEY" > "$auth_file"
-build_models_json "$PROVIDER_NAME" "$BASE_URL" "$API_KEY" "${MODEL_IDS[@]}" > "$models_file"
+build_models_json "$PROVIDER_NAME" "$BASE_URL" "$API_KEY" "$MAX_TOKENS" "${MODEL_PAIRS[@]}" > "$models_file"
 
 # Lock down files containing the API key.
 chmod 600 "$auth_file" "$models_file" 2>/dev/null || true
@@ -351,7 +384,7 @@ echo "========================================"
 echo ""
 echo "  Provider : ${PROVIDER_NAME}"
 echo "  Base URL : ${BASE_URL}"
-echo "  Models   : ${#MODEL_IDS[@]} configured"
+echo "  Models   : ${#MODEL_PAIRS[@]} configured"
 echo ""
 info "  Run 'pi' to start."
 echo ""

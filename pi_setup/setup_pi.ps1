@@ -23,12 +23,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ═════════════════════════════════════════════════════════════
-#  Defaults (all overridable at the prompt)
+#  Config
 # ═════════════════════════════════════════════════════════════
-
-$DEFAULT_URL        = "llm.hotschmoe.com"
-$DEFAULT_CTX_WINDOW = 131072
-$DEFAULT_MAX_TOKENS = 64000
 
 $PI_PKG = "@earendil-works/pi-coding-agent"
 
@@ -63,7 +59,7 @@ function Format-BaseUrl([string]$u) {
     $u = Format-Input $u
 
     if ($u -notmatch '^https?://') {
-        $u = "http://$u"
+        $u = "https://$u"
     }
     $u = $u.TrimEnd('/')
     if ($u -match '/models$') {
@@ -92,21 +88,42 @@ function Get-Models {
     param(
         [string]$Url,
         [string]$ApiKey,
-        [string]$Provider
+        [string]$Provider,
+        [int]$DesiredMax
     )
     try {
         $headers = @{ Authorization = "Bearer $ApiKey" }
-        $resp = Invoke-RestMethod -Uri "$Url/models" `
-            -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+        $irmArgs = @{
+            Uri                = "$Url/models"
+            Headers            = $headers
+            TimeoutSec         = 10
+            ErrorAction        = "Stop"
+            MaximumRedirection = 5
+        }
+        # Pin HTTP/1.1 to avoid an HTTP/2 stream/framing bug some reverse
+        # proxies exhibit. -HttpVersion exists on PowerShell 7.3+ only.
+        if ($PSVersionTable.PSVersion -ge [version]"7.3") {
+            $irmArgs["HttpVersion"] = "1.1"
+        }
+        $resp = Invoke-RestMethod @irmArgs
 
         if ($resp.data -and $resp.data.Count -gt 0) {
             $models = @()
             foreach ($m in $resp.data) {
+                # Context window comes from the server's max_model_len.
+                $ctx = 0
+                if ($m.PSObject.Properties.Name -contains 'max_model_len' -and $m.max_model_len) {
+                    $ctx = [int]$m.max_model_len
+                }
+                # Clamp requested output to the model window when known.
+                $maxt = $DesiredMax
+                if ($ctx -gt 0 -and $DesiredMax -gt $ctx) { $maxt = $ctx }
+
                 $models += [ordered]@{
                     id            = $m.id
                     name          = "$($m.id) ($Provider SGLang)"
-                    contextWindow = $DEFAULT_CTX_WINDOW
-                    maxTokens     = $DEFAULT_MAX_TOKENS
+                    contextWindow = $ctx
+                    maxTokens     = $maxt
                     input         = @("text")
                 }
             }
@@ -232,8 +249,12 @@ Install-Pi
 Write-Host ""
 Write-Host "[2/5] Server configuration..." -ForegroundColor Green
 
-$rawUrl = Read-Host "  Server URL [$DEFAULT_URL]"
-if ([string]::IsNullOrWhiteSpace($rawUrl)) { $rawUrl = $DEFAULT_URL }
+$rawUrl = Read-Host "  Server URL"
+$rawUrl = Format-Input $rawUrl
+if ([string]::IsNullOrWhiteSpace($rawUrl)) {
+    Write-Host "  ERROR: Server URL cannot be empty." -ForegroundColor Red
+    exit 1
+}
 $baseUrl      = Format-BaseUrl $rawUrl
 $providerName = Get-ProviderFromUrl $baseUrl
 
@@ -250,16 +271,28 @@ if ([string]::IsNullOrWhiteSpace($apiKey)) {
     exit 1
 }
 
+# Context window is read from each model's max_model_len at discovery.
+# Max output is prompted, defaulting to 32k, clamped per-model later.
+$DEFAULT_MAX = 32768
+$rawMax = Format-Input (Read-Host "  Max output tokens [$DEFAULT_MAX]")
+if ([string]::IsNullOrWhiteSpace($rawMax)) { $rawMax = "$DEFAULT_MAX" }
+if ($rawMax -notmatch '^\d+$') {
+    Write-Host "  ERROR: Max output tokens must be a positive integer." -ForegroundColor Red
+    exit 1
+}
+$maxTokens = [int]$rawMax
+
 $preview = $apiKey.Substring(0, [Math]::Min(12, $apiKey.Length))
 Write-Host "  Provider : $providerName" -ForegroundColor DarkGray
 Write-Host "  URL      : $baseUrl" -ForegroundColor DarkGray
 Write-Host "  Key      : $preview..." -ForegroundColor DarkGray
+Write-Host "  Max out  : $maxTokens (context read from server per model)" -ForegroundColor DarkGray
 
 # ── Step 3: Discover models ─────────────────────────────────
 Write-Host ""
 Write-Host "[3/5] Discovering models from $baseUrl ..." -ForegroundColor Green
 
-$models = Get-Models -Url $baseUrl -ApiKey $apiKey -Provider $providerName
+$models = Get-Models -Url $baseUrl -ApiKey $apiKey -Provider $providerName -DesiredMax $maxTokens
 
 if ($models) {
     Write-Host "  Discovered $($models.Count) model(s):" -ForegroundColor Green
@@ -271,7 +304,12 @@ else {
 }
 
 foreach ($m in $models) {
-    Write-Host "    * $($m.id)" -ForegroundColor Cyan
+    if ($m.contextWindow -gt 0) {
+        Write-Host "    * $($m.id)  (ctx $($m.contextWindow))" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "    * $($m.id)  (ctx unknown)" -ForegroundColor Cyan
+    }
 }
 
 # Confirm before writing

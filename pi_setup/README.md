@@ -11,7 +11,9 @@ Each script:
    and `/v1` suffix are added automatically, and the **provider name is derived
    from the host** (`llm.hotschmoe.com` → `hotschmoe`).
 3. Prompts for an **API key** (surrounding quotes are stripped automatically).
-4. Discovers models from `<baseUrl>/models`.
+4. Discovers models from `<baseUrl>/models`. Each model's **context window is
+   read from the server's `max_model_len`**; **max output tokens** is prompted
+   (defaults to 32768) and clamped to each model's window.
 5. Shows what it found and asks for confirmation, backs up any existing
    config, then writes `~/.pi/agent/auth.json` and `~/.pi/agent/models.json`
    (the bash version also `chmod 600`s them since they hold your API key).
