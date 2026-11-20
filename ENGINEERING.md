@@ -21,6 +21,9 @@ file wins until that repo is brought in line.
 - Exception: a version that is the *subject* of the work is pinned as data in that repo, not used
   as its build toolchain. Examples: telchar's double-compile target, a Zig compiler built as a
   laminae cell.
+- Exception (owner, 2026-11-20): Zig 0.17.1 is pinned forever as the oracle a self-hosted compiler
+  project is measured against. It is reference data, not a toolchain that tracks releases; that
+  project uses no other Zig version, and every other project still follows the current release.
 
 ## Testing
 
